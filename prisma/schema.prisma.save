@@ -1,0 +1,385 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+model User {
+  id           String     @id @default(uuid())
+  employeeCode String?    @unique
+  fullName     String
+  email        String     @unique
+  phone        String?    @unique
+  passwordHash String
+  status       UserStatus @default(ACTIVE)
+
+  roleId String
+  role   Role   @relation(fields: [roleId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  auditLogs     AuditLog[]
+  notifications Notification[]
+  assignedLeads Lead[]
+}
+
+model Role {
+  id          String  @id @default(uuid())
+  name        String  @unique
+  description String?
+
+  users       User[]
+  permissions RolePermission[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Permission {
+  id     String @id @default(uuid())
+  code   String @unique
+  name   String
+  module String
+
+  roles RolePermission[]
+
+  createdAt DateTime @default(now())
+}
+
+model RolePermission {
+  id String @id @default(uuid())
+
+  roleId       String
+  permissionId String
+
+  role       Role       @relation(fields: [roleId], references: [id])
+  permission Permission @relation(fields: [permissionId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@unique([roleId, permissionId])
+}
+
+model AuditLog {
+  id       String  @id @default(uuid())
+  userId   String
+  action   String
+  module   String
+  recordId String?
+  oldData  Json?
+  newData  Json?
+
+  user User @relation(fields: [userId], references: [id])
+
+  createdAt DateTime @default(now())
+}
+
+model Notification {
+  id      String  @id @default(uuid())
+  userId  String
+  title   String
+  message String
+  isRead  Boolean @default(false)
+
+  user User @relation(fields: [userId], references: [id])
+
+  createdAt DateTime @default(now())
+}
+
+model Workflow {
+  id          String  @id @default(uuid())
+  module      String
+  name        String
+  description String?
+
+  createdAt DateTime @default(now())
+}
+
+model Approval {
+  id          String  @id @default(uuid())
+  module      String
+  referenceId String
+  level       Int
+  approvedBy  String?
+  status      String
+
+  createdAt DateTime @default(now())
+}
+
+enum LeadStatus {
+  NEW
+  ASSIGNED
+  CONTACTED
+  QUALIFIED
+  PROPOSAL_SENT
+  NEGOTIATION
+  WON
+  LOST
+}
+
+model LeadSource {
+  id          String  @id @default(uuid())
+  name        String  @unique
+  description String?
+
+  leads Lead[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Lead {
+  id String @id @default(uuid())
+
+  leadCode       String? @unique
+  customerName   String
+  companyName    String?
+  email          String?
+  phone          String
+  alternatePhone String?
+
+  sourceId String
+  source   LeadSource @relation(fields: [sourceId], references: [id])
+
+  assignedToId String?
+  assignedTo   User?   @relation(fields: [assignedToId], references: [id])
+
+  status LeadStatus @default(NEW)
+
+  notes     LeadNote[]
+  timelines LeadTimeline[]
+  followups LeadFollowup[]
+
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  opportunities Opportunity[]
+}
+
+model LeadNote {
+  id String @id @default(uuid())
+
+  leadId String
+  lead   Lead   @relation(fields: [leadId], references: [id])
+
+  note String
+
+  createdAt DateTime @default(now())
+}
+
+model LeadTimeline {
+  id String @id @default(uuid())
+
+  leadId String
+  lead   Lead   @relation(fields: [leadId], references: [id])
+
+  action  String
+  remarks String?
+
+  createdAt DateTime @default(now())
+}
+
+model LeadFollowup {
+  id String @id @default(uuid())
+
+  leadId String
+  lead   Lead   @relation(fields: [leadId], references: [id])
+
+  followupDate DateTime
+  remarks      String?
+
+  createdAt DateTime @default(now())
+}
+
+enum ConnectorType {
+  API
+  WEBHOOK
+  CSV
+  MANUAL
+}
+
+enum ConnectorStatus {
+  ACTIVE
+  INACTIVE
+  FAILED
+}
+
+model Connector {
+  id String @id @default(uuid())
+
+  name          String
+  platform      String
+  connectorType ConnectorType
+  baseUrl       String?
+  apiKey        String?
+  apiSecret     String?
+  webhookUrl    String?
+  syncFrequency String?
+
+  status ConnectorStatus @default(ACTIVE)
+
+  mappings ConnectorMapping[]
+  logs     ConnectorLog[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model ConnectorMapping {
+  id String @id @default(uuid())
+
+  connectorId String
+  connector   Connector @relation(fields: [connectorId], references: [id])
+
+  sourceField String
+  targetField String
+
+  createdAt DateTime @default(now())
+}
+
+model ConnectorLog {
+  id String @id @default(uuid())
+
+  connectorId String
+  connector   Connector @relation(fields: [connectorId], references: [id])
+
+  action   String
+  status   String
+  payload  Json?
+  response Json?
+
+  createdAt DateTime @default(now())
+}
+
+model Opportunity {
+  id                String      @id @default(uuid())
+  opportunityCode   String?
+  leadId            String
+  title             String
+  expectedValue     Float
+  probability       Int
+  expectedCloseDate DateTime
+  status            String      @default("OPEN")
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+  quotations        Quotation[]
+
+  lead Lead @relation(fields: [leadId], references: [id])
+}
+
+model Quotation {
+  id            String       @id @default(uuid())
+  quotationCode String?
+  opportunityId String
+  quoteDate     DateTime
+  totalAmount   Float
+  status        String       @default("DRAFT")
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  salesOrders   SalesOrder[]
+
+  opportunity Opportunity @relation(fields: [opportunityId], references: [id])
+}
+
+model SalesOrder {
+  id             String                 @id @default(uuid())
+  salesOrderCode String?
+  quotationId    String
+  orderDate      DateTime
+  totalAmount    Float
+  status         String                 @default("OPEN")
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+  inspections    StockInspection[]
+  reservations   InventoryReservation[]
+  quotation      Quotation              @relation(fields: [quotationId], references: [id])
+}
+
+model InventoryItem {
+  id           String                 @id @default(uuid())
+  sku          String                 @unique
+  productName  String
+  category     String?
+  stockQty     Float
+  reservedQty  Float                  @default(0)
+  availableQty Float
+  warehouse    String?
+  condition    String                 @default("GOOD")
+  createdAt    DateTime               @default(now())
+  updatedAt    DateTime               @updatedAt
+  inspections  StockInspection[]
+  reservations InventoryReservation[]
+}
+
+model StockInspection {
+  id              String         @id @default(uuid())
+  inventoryItemId String
+  salesOrderId    String
+  inspectionDate  DateTime
+  conditionStatus String
+  remarks         String?
+  createdAt       DateTime       @default(now())
+  treatmentJobs   TreatmentJob[]
+
+  inventoryItem InventoryItem @relation(fields: [inventoryItemId], references: [id])
+  salesOrder    SalesOrder    @relation(fields: [salesOrderId], references: [id])
+}
+
+model TreatmentJob {
+  id                String        @id @default(uuid())
+  stockInspectionId String
+  jobType           String
+  assignedTo        String?
+  status            String        @default("PENDING")
+  notes             String?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  qcClearances      QCClearance[]
+
+  stockInspection StockInspection @relation(fields: [stockInspectionId], references: [id])
+}
+
+model QCClearance {
+  id             String   @id @default(uuid())
+  treatmentJobId String
+  qcDate         DateTime
+  qcStatus       String
+  remarks        String?
+  createdAt      DateTime @default(now())
+
+  treatmentJob TreatmentJob @relation(fields: [treatmentJobId], references: [id])
+}
+
+model InventoryReservation {
+  id              String   @id @default(uuid())
+  inventoryItemId String
+  salesOrderId    String
+  quantity        Float
+  status          String   @default("RESERVED")
+  createdAt       DateTime @default(now())
+
+  inventoryItem InventoryItem @relation(fields: [inventoryItemId], references: [id])
+  salesOrder    SalesOrder    @relation(fields: [salesOrderId], references: [id])
+}
+model Dispatch {
+  id             String   @id @default(uuid())
+  salesOrderId   String
+  dispatchDate   DateTime
+  vehicleNumber  String?
+  driverName     String?
+  trackingNumber String?
+  status         String   @default("PLANNED")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  salesOrder SalesOrder @relation(fields: [salesOrderId], references: [id])
+}

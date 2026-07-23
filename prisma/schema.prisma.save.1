@@ -1,0 +1,952 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+enum WarrantyPolicyType {
+  NONE
+  INVOICE_BASED
+  INSTALLATION_BASED
+}
+
+model User {
+  id                        String            @id @default(uuid())
+  employeeCode              String?           @unique
+  fullName                  String
+  email                     String            @unique
+  phone                     String?           @unique
+  passwordHash              String
+  status                    UserStatus        @default(ACTIVE)
+  assignedWhatsAppInquiries WhatsAppInquiry[]
+  roleId                    String
+  role                      Role              @relation(fields: [roleId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  auditLogs     AuditLog[]
+  notifications Notification[]
+  assignedLeads Lead[]
+}
+
+model Role {
+  id          String  @id @default(uuid())
+  name        String  @unique
+  description String?
+
+  users       User[]
+  permissions RolePermission[]
+
+  createdAt               DateTime                  @default(now())
+  updatedAt               DateTime                  @updatedAt
+  WhatsAppDepartmentRoute WhatsAppDepartmentRoute[]
+}
+
+model Permission {
+  id     String @id @default(uuid())
+  code   String @unique
+  name   String
+  module String
+
+  roles RolePermission[]
+
+  createdAt DateTime @default(now())
+}
+
+model RolePermission {
+  id String @id @default(uuid())
+
+  roleId       String
+  permissionId String
+
+  role       Role       @relation(fields: [roleId], references: [id])
+  permission Permission @relation(fields: [permissionId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@unique([roleId, permissionId])
+}
+
+model AuditLog {
+  id       String  @id @default(uuid())
+  userId   String
+  action   String
+  module   String
+  recordId String?
+  oldData  Json?
+  newData  Json?
+
+  user User @relation(fields: [userId], references: [id])
+
+  createdAt DateTime @default(now())
+}
+
+model Notification {
+  id String @id @default(uuid())
+
+  userId  String?
+  title   String
+  message String
+
+  channel  String
+  category String
+  priority String
+  status   String
+
+  referenceType String?
+  referenceId   String?
+
+  escalationLevel Int @default(0)
+  retryCount      Int @default(0)
+
+  isRead Boolean   @default(false)
+  readAt DateTime?
+
+  scheduledAt DateTime?
+  deliveredAt DateTime?
+  failedAt    DateTime?
+
+  errorMessage String?
+
+  metadata Json?
+
+  user User? @relation(fields: [userId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([channel])
+  @@index([status])
+  @@index([priority])
+  @@index([createdAt])
+}
+
+model Workflow {
+  id          String  @id @default(uuid())
+  module      String
+  name        String
+  description String?
+
+  createdAt DateTime @default(now())
+}
+
+model Approval {
+  id          String  @id @default(uuid())
+  module      String
+  referenceId String
+  level       Int
+  approvedBy  String?
+  status      String
+
+  createdAt DateTime @default(now())
+}
+
+enum LeadStatus {
+  NEW
+  ASSIGNED
+  CONTACTED
+  QUALIFIED
+  PROPOSAL_SENT
+  NEGOTIATION
+  WON
+  LOST
+  PRE_SALES_ASSIGNED
+  SALES_ASSIGNED
+  REJECTED
+}
+
+model LeadSource {
+  id          String  @id @default(uuid())
+  name        String  @unique
+  description String?
+
+  leads Lead[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Lead {
+  id String @id @default(uuid())
+
+  leadCode       String? @unique
+  customerName   String
+  companyName    String?
+  email          String?
+  phone          String
+  alternatePhone String?
+
+  sourceId String
+  source   LeadSource @relation(fields: [sourceId], references: [id])
+
+  assignedToId String?
+  assignedTo   User?   @relation(fields: [assignedToId], references: [id])
+
+  status LeadStatus @default(NEW)
+
+  notes     LeadNote[]
+  timelines LeadTimeline[]
+  followups LeadFollowup[]
+
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  opportunities Opportunity[]
+}
+
+model LeadNote {
+  id String @id @default(uuid())
+
+  leadId String
+  lead   Lead   @relation(fields: [leadId], references: [id])
+
+  note String
+
+  createdAt DateTime @default(now())
+}
+
+model LeadTimeline {
+  id String @id @default(uuid())
+
+  leadId String
+  lead   Lead   @relation(fields: [leadId], references: [id])
+
+  action  String
+  remarks String?
+
+  createdAt DateTime @default(now())
+}
+
+model LeadFollowup {
+  id String @id @default(uuid())
+
+  leadId String
+  lead   Lead   @relation(fields: [leadId], references: [id])
+
+  followupDate DateTime
+  remarks      String?
+
+  createdAt DateTime @default(now())
+}
+
+enum ConnectorType {
+  API
+  WEBHOOK
+  CSV
+  MANUAL
+}
+
+enum ConnectorStatus {
+  ACTIVE
+  INACTIVE
+  FAILED
+}
+
+model Connector {
+  id String @id @default(uuid())
+
+  name          String
+  platform      String
+  connectorType ConnectorType
+  baseUrl       String?
+  apiKey        String?
+  apiSecret     String?
+  webhookUrl    String?
+  syncFrequency String?
+
+  status ConnectorStatus @default(ACTIVE)
+
+  mappings ConnectorMapping[]
+  logs     ConnectorLog[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model ConnectorMapping {
+  id String @id @default(uuid())
+
+  connectorId String
+  connector   Connector @relation(fields: [connectorId], references: [id])
+
+  sourceField String
+  targetField String
+
+  createdAt DateTime @default(now())
+}
+
+model ConnectorLog {
+  id String @id @default(uuid())
+
+  connectorId String
+  connector   Connector @relation(fields: [connectorId], references: [id])
+
+  action   String
+  status   String
+  payload  Json?
+  response Json?
+
+  createdAt DateTime @default(now())
+}
+
+model Opportunity {
+  id                String      @id @default(uuid())
+  opportunityCode   String?
+  leadId            String
+  title             String
+  expectedValue     Float
+  probability       Int
+  expectedCloseDate DateTime
+  status            String      @default("OPEN")
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+  quotations        Quotation[]
+
+  lead Lead @relation(fields: [leadId], references: [id])
+}
+
+model Quotation {
+  id               String            @id @default(uuid())
+  quotationCode    String?
+  opportunityId    String
+  quoteDate        DateTime
+  totalAmount      Float
+  status           String            @default("DRAFT")
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  salesOrders      SalesOrder[]
+  proformaInvoices ProformaInvoice[]
+
+  opportunity Opportunity @relation(fields: [opportunityId], references: [id])
+}
+
+model SalesOrder {
+  id             String   @id @default(uuid())
+  salesOrderCode String?
+  orderDate      DateTime
+  totalAmount    Float
+  status         String   @default("OPEN")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  // NEW PRODUCT LINK
+  inventoryItemId String?
+  inventoryItem   InventoryItem? @relation(fields: [inventoryItemId], references: [id])
+
+  inspections          StockInspection[]
+  reservations         InventoryReservation[]
+  proformaInvoiceId    String?
+  proformaInvoice      ProformaInvoice?       @relation(fields: [proformaInvoiceId], references: [id])
+  dispatches           Dispatch[]
+  Quotation            Quotation?             @relation(fields: [quotationId], references: [id])
+  quotationId          String?
+  purchaseRequisitions PurchaseRequisition[]
+  salesInvoices        SalesInvoice[]
+}
+
+model InventoryItem {
+  id                   String                 @id @default(uuid())
+  sku                  String                 @unique
+  productName          String
+  category             String?
+  stockQty             Float
+  reservedQty          Float                  @default(0)
+  availableQty         Float
+  warehouse            String?
+  condition            String                 @default("GOOD")
+  createdAt            DateTime               @default(now())
+  updatedAt            DateTime               @updatedAt
+  inspections          StockInspection[]
+  reservations         InventoryReservation[]
+  purchaseRequisitions PurchaseRequisition[]
+  spareConsumptions    SpareConsumption[]
+  warrantyApplicable   Boolean                @default(false)
+  warrantyPolicyType   WarrantyPolicyType     @default(NONE)
+  warrantyMonths       Int?
+  salesOrders          SalesOrder[]
+}
+
+model StockInspection {
+  id              String         @id @default(uuid())
+  inventoryItemId String
+  salesOrderId    String
+  inspectionDate  DateTime
+  conditionStatus String
+  remarks         String?
+  createdAt       DateTime       @default(now())
+  treatmentJobs   TreatmentJob[]
+
+  inventoryItem InventoryItem @relation(fields: [inventoryItemId], references: [id])
+  salesOrder    SalesOrder    @relation(fields: [salesOrderId], references: [id])
+}
+
+model TreatmentJob {
+  id                String        @id @default(uuid())
+  stockInspectionId String
+  jobType           String
+  assignedTo        String?
+  status            String        @default("PENDING")
+  notes             String?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  qcClearances      QCClearance[]
+
+  stockInspection StockInspection @relation(fields: [stockInspectionId], references: [id])
+}
+
+model QCClearance {
+  id             String   @id @default(uuid())
+  treatmentJobId String
+  qcDate         DateTime
+  qcStatus       String
+  remarks        String?
+  createdAt      DateTime @default(now())
+
+  treatmentJob TreatmentJob @relation(fields: [treatmentJobId], references: [id])
+}
+
+model InventoryReservation {
+  id              String    @id @default(uuid())
+  inventoryItemId String
+  salesOrderId    String
+  quantity        Float
+  status          String    @default("RESERVED")
+  createdAt       DateTime  @default(now())
+  reservedById    String?
+  reservationType String    @default("SALES_ORDER")
+  expiryDate      DateTime?
+  priorityLevel   String    @default("NORMAL")
+  remarks         String?
+
+  inventoryItem InventoryItem @relation(fields: [inventoryItemId], references: [id])
+  salesOrder    SalesOrder    @relation(fields: [salesOrderId], references: [id])
+}
+
+model Dispatch {
+  id             String     @id @default(uuid())
+  salesOrderId   String
+  dispatchDate   DateTime
+  vehicleNumber  String?
+  driverName     String?
+  trackingNumber String?
+  status         String     @default("PLANNED")
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+  deliveries     Delivery[]
+
+  salesOrder SalesOrder @relation(fields: [salesOrderId], references: [id])
+}
+
+model Delivery {
+  id              String   @id @default(uuid())
+  dispatchId      String
+  deliveryDate    DateTime
+  receivedBy      String?
+  deliveryStatus  String   @default("DELIVERED")
+  proofOfDelivery String?
+  remarks         String?
+  createdAt       DateTime @default(now())
+
+  dispatch Dispatch @relation(fields: [dispatchId], references: [id])
+}
+
+model ProformaInvoice {
+  id             String       @id @default(uuid())
+  quotationId    String
+  proformaNumber String?
+  issueDate      DateTime
+  totalAmount    Float
+  customerStatus String       @default("PENDING")
+  validityDate   DateTime?
+  remarks        String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  salesOrders    SalesOrder[]
+
+  quotation Quotation @relation(fields: [quotationId], references: [id])
+}
+
+model PurchaseRequisition {
+  id              String          @id @default(uuid())
+  salesOrderId    String
+  inventoryItemId String
+  requestedQty    Float
+  status          String          @default("PENDING")
+  remarks         String?
+  createdAt       DateTime        @default(now())
+  purchaseOrders  PurchaseOrder[]
+
+  salesOrder    SalesOrder    @relation(fields: [salesOrderId], references: [id])
+  inventoryItem InventoryItem @relation(fields: [inventoryItemId], references: [id])
+}
+
+model PurchaseOrder {
+  id                    String         @id @default(uuid())
+  purchaseRequisitionId String
+  poNumber              String?
+  orderQty              Float
+  status                String         @default("OPEN")
+  createdAt             DateTime       @default(now())
+  updatedAt             DateTime       @updatedAt
+  goodsReceipts         GoodsReceipt[]
+
+  purchaseRequisition PurchaseRequisition @relation(fields: [purchaseRequisitionId], references: [id])
+}
+
+model SalesInvoice {
+  id            String               @id @default(uuid())
+  salesOrderId  String
+  invoiceNumber String?
+  invoiceDate   DateTime
+  taxableAmount Float
+  gstAmount     Float
+  totalAmount   Float
+  paymentStatus String               @default("PENDING")
+  status        String               @default("DRAFT")
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+  gstRegistry   GSTInvoiceRegistry[]
+  receivables   AccountsReceivable[]
+  warranties    Warranty[]
+  assets        Asset[]
+
+  salesOrder SalesOrder @relation(fields: [salesOrderId], references: [id])
+}
+
+model GSTInvoiceRegistry {
+  id                String    @id @default(uuid())
+  salesInvoiceId    String
+  irn               String?
+  ackNumber         String?
+  ackDate           DateTime?
+  qrCode            String?
+  signedInvoice     String?
+  ewayBillNumber    String?
+  vehicleNumber     String?
+  transporterName   String?
+  transportDistance Float?
+  status            String    @default("PENDING")
+  createdAt         DateTime  @default(now())
+
+  salesInvoice SalesInvoice @relation(fields: [salesInvoiceId], references: [id])
+}
+
+model AccountsReceivable {
+  id                 String              @id @default(uuid())
+  salesInvoiceId     String
+  dueDate            DateTime
+  outstandingAmount  Float
+  paidAmount         Float               @default(0)
+  balanceAmount      Float
+  paymentStatus      String              @default("PENDING")
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  paymentCollections PaymentCollection[]
+
+  salesInvoice SalesInvoice @relation(fields: [salesInvoiceId], references: [id])
+}
+
+model PaymentCollection {
+  id                   String   @id @default(uuid())
+  accountsReceivableId String
+  paymentDate          DateTime
+  amount               Float
+  paymentMode          String
+  referenceNumber      String?
+  remarks              String?
+  createdAt            DateTime @default(now())
+
+  accountsReceivable AccountsReceivable @relation(fields: [accountsReceivableId], references: [id])
+}
+
+model Warranty {
+  id             String          @id @default(uuid())
+  salesInvoiceId String
+  serialNumber   String
+  warrantyStart  DateTime
+  warrantyEnd    DateTime
+  status         String          @default("ACTIVE")
+  remarks        String?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  serviceTickets ServiceTicket[]
+  amcs           AMC[]
+  rmas           RMA[]
+
+  salesInvoice SalesInvoice @relation(fields: [salesInvoiceId], references: [id])
+}
+
+model ServiceTicket {
+  id              String          @id @default(uuid())
+  warrantyId      String
+  complaintTitle  String
+  complaintDetail String
+  priority        String          @default("NORMAL")
+  assignedTo      String?
+  status          String          @default("OPEN")
+  resolutionNotes String?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  engineerVisits  EngineerVisit[]
+  
+  warranty Warranty @relation(fields: [warrantyId], references: [id])
+  RMA      RMA[]
+}
+
+model EngineerVisit {
+  id                String             @id @default(uuid())
+  serviceTicketId   String
+  visitDate         DateTime
+  engineerName      String
+  workDone          String
+  partsUsed         String?
+  timeSpentHours    Float
+  travelExpense     Float?             @default(0)
+  findings          String?
+  nextAction        String?
+  status            String             @default("COMPLETED")
+  createdAt         DateTime           @default(now())
+  spareConsumptions SpareConsumption[]
+
+  serviceTicket ServiceTicket @relation(fields: [serviceTicketId], references: [id])
+}
+
+model AMC {
+  id             String     @id @default(uuid())
+  warrantyId     String
+  contractNumber String?
+  amcStart       DateTime
+  amcEnd         DateTime
+  visitFrequency String
+  contractValue  Float
+  status         String     @default("OFFERED")
+  customerStatus String     @default("PENDING")
+  remarks        String?
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+  amcVisits      AMCVisit[]
+
+  warranty Warranty @relation(fields: [warrantyId], references: [id])
+}
+
+model AMCVisit {
+  id            String    @id @default(uuid())
+  amcId         String
+  scheduledDate DateTime
+  visitStatus   String    @default("PENDING")
+  engineerName  String?
+  remarks       String?
+  completedAt   DateTime?
+  createdAt     DateTime  @default(now())
+
+  amc AMC @relation(fields: [amcId], references: [id])
+}
+
+model SpareConsumption {
+  id              String   @id @default(uuid())
+  engineerVisitId String
+  inventoryItemId String
+  quantityUsed    Float
+  unitCost        Float
+  totalCost       Float
+  remarks         String?
+  createdAt       DateTime @default(now())
+
+  engineerVisit EngineerVisit @relation(fields: [engineerVisitId], references: [id])
+  inventoryItem InventoryItem @relation(fields: [inventoryItemId], references: [id])
+}
+
+model RMA {
+  id              String   @id @default(uuid())
+  warrantyId      String
+  serviceTicketId String?
+  reason          String
+  inspectionNotes String?
+  approvalStatus  String   @default("PENDING")
+  replacementType String?
+  remarks         String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  warranty      Warranty       @relation(fields: [warrantyId], references: [id])
+  serviceTicket ServiceTicket? @relation(fields: [serviceTicketId], references: [id])
+}
+
+model Asset {
+  id               String         @id @default(uuid())
+  serialNumber     String         @unique
+  salesInvoiceId   String
+  productName      String
+  installationDate DateTime?
+  assetStatus      String         @default("ACTIVE")
+  healthScore      Float          @default(100)
+  remarks          String?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  installations    Installation[]
+
+  salesInvoice SalesInvoice @relation(fields: [salesInvoiceId], references: [id])
+}
+
+model Installation {
+  id                  String    @id @default(uuid())
+  assetId             String
+  installationDate    DateTime
+  engineerName        String
+  siteReadiness       String
+  commissioningStatus String    @default("PENDING")
+  trialRunStatus      String    @default("PENDING")
+  trainingCompleted   Boolean   @default(false)
+  customerSignoff     Boolean   @default(false)
+  goLiveDate          DateTime?
+  remarks             String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  asset         Asset           @relation(fields: [assetId], references: [id])
+  Commissioning Commissioning[]
+}
+
+model CommissioningTemplate {
+  id        String   @id @default(uuid())
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  fields  CommissioningTemplateField[]
+  records Commissioning[]
+}
+
+model CommissioningTemplateField {
+  id           String  @id @default(uuid())
+  templateId   String
+  fieldName    String
+  fieldType    String
+  required     Boolean @default(false)
+  sequence     Int
+  passCriteria String?
+
+  template CommissioningTemplate @relation(fields: [templateId], references: [id])
+}
+
+model Commissioning {
+  id                String   @id @default(uuid())
+  installationId    String
+  templateId        String
+  engineerName      String
+  commissioningDate DateTime
+  finalStatus       String   @default("PENDING")
+  customerAccepted  Boolean  @default(false)
+  remarks           String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  installation Installation          @relation(fields: [installationId], references: [id])
+  template     CommissioningTemplate @relation(fields: [templateId], references: [id])
+  results      CommissioningResult[]
+}
+
+model CommissioningResult {
+  id              String @id @default(uuid())
+  commissioningId String
+  fieldId         String
+  fieldValue      String
+
+  commissioning Commissioning @relation(fields: [commissioningId], references: [id])
+}
+
+model Document {
+  id           String   @id @default(uuid())
+  documentName String
+  documentType String
+  moduleName   String
+  referenceId  String
+  filePath     String
+  status       String   @default("ACTIVE")
+  remarks      String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model CompanySMTPConfig {
+  id            String   @id @default(uuid())
+  companyName   String
+  smtpHost      String
+  smtpPort      Int
+  smtpUser      String
+  smtpPass      String
+  secure        Boolean  @default(false)
+  defaultSender String
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  departmentEmails DepartmentEmail[]
+}
+
+model DepartmentEmail {
+  id           String   @id @default(uuid())
+  smtpConfigId String
+  department   String
+  email        String
+  purpose      String?
+  isDefault    Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  smtpConfig CompanySMTPConfig @relation(fields: [smtpConfigId], references: [id])
+}
+
+model EmailLog {
+  id             String   @id @default(uuid())
+  smtpConfigId   String
+  department     String
+  senderEmail    String
+  recipientEmail String
+  subject        String
+  body           String
+  status         String
+  errorMessage   String?
+  referenceType  String?
+  referenceId    String?
+  createdAt      DateTime @default(now())
+}
+
+model WhatsAppConfig {
+  id String @id @default(uuid())
+
+  companyName       String
+  whatsappNumber    String
+  defaultSenderName String?
+
+  phoneNumberId   String
+  accessToken     String
+  businessAccount String
+  webhookToken    String?
+
+  isActive Boolean @default(true)
+
+  createdAt            DateTime               @default(now())
+  updatedAt            DateTime               @updatedAt
+  WhatsAppConversation WhatsAppConversation[]
+  WhatsAppBotConfig    WhatsAppBotConfig[]
+
+  @@index([companyName])
+  @@index([whatsappNumber])
+}
+
+model WhatsAppBotConfig {
+  id String @id @default(uuid())
+
+  whatsappConfigId String
+
+  welcomeMessage       String
+  unknownUserMessage   String
+  enableCustomerLookup Boolean @default(true)
+  enableLeadCapture    Boolean @default(true)
+  enableHumanHandoff   Boolean @default(true)
+
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  whatsappConfig          WhatsAppConfig            @relation(fields: [whatsappConfigId], references: [id])
+  WhatsAppDepartmentRoute WhatsAppDepartmentRoute[]
+}
+
+model WhatsAppDepartmentRoute {
+  id String @id @default(uuid())
+
+  botConfigId    String
+  optionNumber   Int
+  departmentName String
+  routeType      String
+
+  roleId String?
+  role   Role?   @relation(fields: [roleId], references: [id])
+
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  botConfig WhatsAppBotConfig @relation(fields: [botConfigId], references: [id])
+}
+
+model GoodsReceipt {
+  id                 String              @id @default(uuid())
+  purchaseOrderId    String
+  grnNumber          String?
+  receivedQty        Float
+  remarks            String?
+  createdAt          DateTime            @default(now())
+  qualityInspections QualityInspection[]
+
+  purchaseOrder PurchaseOrder @relation(fields: [purchaseOrderId], references: [id])
+}
+
+model QualityInspection {
+  id             String   @id @default(uuid())
+  goodsReceiptId String
+  status         String   @default("PENDING")
+  acceptedQty    Float
+  rejectedQty    Float
+  remarks        String?
+  inspectorName  String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  goodsReceipt GoodsReceipt @relation(fields: [goodsReceiptId], references: [id])
+}
+
+model WhatsAppConversation {
+  id String @id @default(uuid())
+
+  whatsappConfigId String
+  customerNumber   String
+  customerName     String?
+
+  currentStep  String?
+  selectedDept String?
+
+  isActive Boolean @default(true)
+
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  referenceValue String?
+  complaintText  String?
+  whatsappConfig WhatsAppConfig @relation(fields: [whatsappConfigId], references: [id])
+
+  @@index([customerNumber])
+}
+
+model WhatsAppInquiry {
+  id String @id @default(uuid())
+
+  conversationId String
+  departmentName String
+  routeType      String
+  inquiryStatus  String @default("OPEN")
+
+  assignedToId String?
+  assignedTo   User?   @relation(fields: [assignedToId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([conversationId])
+  @@index([departmentName])
+  @@index([routeType])
+  @@index([inquiryStatus])
+}

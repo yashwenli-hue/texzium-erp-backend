@@ -1,0 +1,60 @@
+import { Injectable } from '@nestjs/common';
+import { PrismaService } from '../../../core/database/prisma.service';
+import { CreateCommissioningTemplateDto } from './dto/create-commissioning-template.dto';
+import { CreateCommissioningFieldDto } from './dto/create-commissioning-field.dto';
+import { CreateCommissioningDto } from './dto/create-commissioning.dto';
+
+
+
+@Injectable()
+export class CommissioningService {
+  constructor(private prisma: PrismaService) {}
+
+  async createTemplate(data: CreateCommissioningTemplateDto) {
+    return this.prisma.commissioningTemplate.create({
+      data: {
+        name: data.name,
+      },
+    });
+  }
+
+  async createField(data: CreateCommissioningFieldDto) {
+    return this.prisma.commissioningTemplateField.create({
+      data: {
+        templateId: data.templateId,
+        fieldName: data.fieldName,
+        fieldType: data.fieldType,
+        required: data.required ?? false,
+        sequence: data.sequence,
+        passCriteria: data.passCriteria,
+      },
+    });
+  }
+  async createCommissioning(data: CreateCommissioningDto) {
+  return this.prisma.commissioning.create({
+    data: {
+      installationId: data.installationId,
+      templateId: data.templateId,
+      engineerName: data.engineerName,
+      commissioningDate: new Date(data.commissioningDate),
+      customerAccepted: data.customerAccepted ?? false,
+      remarks: data.remarks,
+    },
+  });
+}
+
+
+
+
+  async getTemplates() {
+    return this.prisma.commissioningTemplate.findMany({
+      include: {
+        fields: {
+          orderBy: {
+            sequence: 'asc',
+          },
+        },
+      },
+    });
+  }
+}

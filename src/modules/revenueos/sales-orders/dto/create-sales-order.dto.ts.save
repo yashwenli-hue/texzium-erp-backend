@@ -1,0 +1,12 @@
+import { IsNumber, IsString } from 'class-validator';
+
+export class CreateSalesOrderDto {
+  @IsString()
+  proformaInvoiceId: string;
+
+  @IsString()
+  orderDate: string;
+
+  @IsNumber()
+  totalAmount: number;
+}

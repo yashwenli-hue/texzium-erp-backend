@@ -1,0 +1,392 @@
+import { Injectable } from '@nestjs/common';
+import { PrismaService } from '../database/prisma.service';
+import axios from 'axios';
+
+@Injectable()
+export class WhatsAppService {
+  constructor(private readonly prisma: PrismaService) {}
+
+  async createConfig(data: any) {
+    return this.prisma.whatsAppConfig.create({ data });
+  }
+
+  async createBotConfig(data: any) {
+    return this.prisma.whatsAppBotConfig.create({ data });
+  }
+
+  async createDepartmentRoute(data: any) {
+    return this.prisma.whatsAppDepartmentRoute.create({ data });
+  }
+
+  async getConfigs() {
+    return this.prisma.whatsAppConfig.findMany({
+      orderBy: {
+        createdAt: 'desc',
+      },
+    });
+  }
+
+  async sendMessage(
+    configId: string,
+    to: string,
+    message: string,
+  ) {
+    const config = await this.prisma.whatsAppConfig.findFirst({
+      where: {
+        id: configId,
+        isActive: true,
+      },
+    });
+
+    if (!config) {
+      throw new Error('WhatsApp Config not found');
+    }
+
+    const url = `https://graph.facebook.com/v20.0/${config.phoneNumberId}/messages`;
+
+    return axios.post(
+      url,
+      {
+        messaging_product: 'whatsapp',
+        to,
+        type: 'text',
+        text: {
+          body: message,
+        },
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${config.accessToken}`,
+          'Content-Type': 'application/json',
+        },
+      },
+    );
+  }
+
+  verifyWebhook(
+    mode: string,
+    token: string,
+    challenge: string,
+  ) {
+    if (
+      mode === 'subscribe' &&
+      token === 'TEXZIUM_WEBHOOK_SECRET'
+    ) {
+      return challenge;
+    }
+
+    throw new Error('Webhook verification failed');
+  }
+
+  async handleIncomingMessage(body: any) {
+    const incomingMessage =
+      body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
+
+    if (!incomingMessage) {
+      return { message: 'No incoming message' };
+    }
+
+    const customerNumber = incomingMessage.from;
+    const customerText = incomingMessage.text?.body?.trim();
+
+    const botConfig =
+      await this.prisma.whatsAppBotConfig.findFirst({
+        where: {
+          isActive: true,
+        },
+      });
+
+    const routes =
+      await this.prisma.whatsAppDepartmentRoute.findMany({
+        where: {
+          botConfigId: botConfig?.id,
+          isActive: true,
+        },
+        orderBy: {
+          optionNumber: 'asc',
+        },
+      });
+
+    const menu = routes
+      .map(
+        (route) =>
+          `${route.optionNumber}. ${route.departmentName}`,
+      )
+      .join('\n');
+
+    let conversation =
+      await this.prisma.whatsAppConversation.findFirst({
+        where: {
+          customerNumber,
+          isActive: true,
+        },
+      });
+
+    if (!conversation) {
+      conversation =
+        await this.prisma.whatsAppConversation.create({
+          data: {
+            whatsappConfigId:
+              botConfig?.whatsappConfigId!,
+            customerNumber,
+          },
+        });
+
+      return {
+        message:
+          botConfig?.unknownUserMessage ??
+          'Welcome 👋 Please tell us your name.',
+      };
+    }
+
+    if (!conversation.customerName) {
+      await this.prisma.whatsAppConversation.update({
+        where: {
+          id: conversation.id,
+        },
+        data: {
+          customerName: customerText,
+          currentStep: 'NAME_CAPTURED',
+        },
+      });
+
+      const leadSource =
+        await this.prisma.leadSource.findFirst({
+          where: {
+            name: 'WHATSAPP',
+          },
+        });
+
+      if (leadSource) {
+        const newLead = await this.prisma.lead.create({
+          data: {
+            customerName: customerText,
+            phone: incomingMessage.from,
+            sourceId: leadSource.id,
+            status: 'NEW',
+          },
+        });
+
+        await this.prisma.leadTimeline.create({
+          data: {
+            leadId: newLead.id,
+            action: 'LEAD_CREATED',
+            remarks: 'Auto-created from WhatsApp Bot',
+          },
+        });
+      }
+
+      return {
+        message: `
+Thank you ${customerText} 👋
+
+${botConfig?.welcomeMessage}
+
+${menu}
+`,
+      };
+    }
+
+    if (conversation.currentStep === 'WAITING_REFERENCE') {
+      await this.prisma.whatsAppConversation.update({
+        where: {
+          id: conversation.id,
+        },
+        data: {
+          referenceValue: customerText,
+          currentStep: 'WAITING_COMPLAINT',
+        },
+      });
+
+      return {
+        message: `
+Reference received ✅
+
+Please describe your complaint/problem in detail.
+`,
+      };
+    }
+
+        
+if (conversation.currentStep === 'WAITING_COMPLAINT') {
+  const updatedConversation =
+    await this.prisma.whatsAppConversation.update({
+      where: {
+        id: conversation.id,
+      },
+      data: {
+        complaintText: customerText,
+        currentStep: 'SERVICE_TICKET_PENDING',
+      },
+    });
+
+  const warranty =
+    await this.prisma.warranty.findFirst({
+      where: {
+        serialNumber:
+          updatedConversation.referenceValue ?? '',
+        status: 'ACTIVE',
+      },
+    });
+
+  if (!warranty) {
+    return {
+      message: `
+Warranty not found ❌
+
+Please verify your Serial Number / Warranty Number and try again.
+`,
+    };
+  }
+
+const route =
+  await this.prisma.whatsAppDepartmentRoute.findFirst({
+    where: {
+      departmentName: conversation.selectedDept ?? '',
+      isActive: true,
+    },
+  });
+
+const assignedUser =
+  await this.prisma.user.findFirst({
+    where: {
+      roleId: route?.roleId ?? undefined,
+      status: 'ACTIVE',
+    },
+  });
+
+  const serviceTicket =
+  await this.prisma.serviceTicket.create({
+    data: {
+      warrantyId: warranty.id,
+      complaintTitle: 'WhatsApp Service Complaint',
+      complaintDetail: customerText,
+      priority: 'NORMAL',
+      assignedTo: assignedUser?.fullName,
+      status: 'OPEN',
+    },
+  });
+
+  await this.prisma.whatsAppConversation.update({
+    where: {
+      id: conversation.id,
+    },
+    data: {
+      currentStep: 'SERVICE_TICKET_CREATED',
+    },
+  });
+
+  return {
+    message: `
+Service Ticket Created ✅
+
+Ticket ID: ${serviceTicket.id}
+
+Our service team will contact you shortly.
+`,
+  };
+}
+
+
+
+
+
+    const selectedRoute = routes.find(
+      (route) =>
+        route.optionNumber.toString() === customerText,
+    );
+
+    if (selectedRoute) {
+      const assignedUser =
+        await this.prisma.user.findFirst({
+          where: {
+            roleId: selectedRoute.roleId ?? undefined,
+            status: 'ACTIVE',
+          },
+        });
+
+      const inquiry =
+        await this.prisma.whatsAppInquiry.create({
+          data: {
+            conversationId: conversation.id,
+            departmentName:
+              selectedRoute.departmentName,
+            routeType: selectedRoute.routeType,
+            inquiryStatus: 'OPEN',
+            assignedToId: assignedUser?.id,
+          },
+        });
+
+      await this.prisma.whatsAppConversation.update({
+        where: {
+          id: conversation.id,
+        },
+        data: {
+          selectedDept:
+            selectedRoute.departmentName,
+          currentStep: 'DEPARTMENT_SELECTED',
+        },
+      });
+
+      await this.prisma.notification.create({
+        data: {
+          userId: assignedUser?.id,
+          title: `${selectedRoute.departmentName} Inquiry`,
+          message: `New WhatsApp inquiry received for ${selectedRoute.departmentName}`,
+          channel: 'IN_APP',
+          category: 'WHATSAPP',
+          priority: 'HIGH',
+          status: 'PENDING',
+          referenceType: 'WHATSAPP_INQUIRY',
+          referenceId: inquiry.id,
+        },
+      });
+
+      if (selectedRoute.routeType === 'SERVICE') {
+        await this.prisma.whatsAppConversation.update({
+          where: {
+            id: conversation.id,
+          },
+          data: {
+            selectedDept:
+              selectedRoute.departmentName,
+            currentStep: 'WAITING_REFERENCE',
+          },
+        });
+
+        return {
+          message: `
+You selected: ${selectedRoute.departmentName} ✅
+
+Please share your:
+Invoice Number / Serial Number / Warranty Number
+so we can identify your product.
+`,
+        };
+      }
+
+      return {
+        message: `
+You selected: ${selectedRoute.departmentName} ✅
+
+Your request has been forwarded successfully.
+
+Reference ID: ${inquiry.id}
+Status: OPEN
+
+Our ${selectedRoute.departmentName} team will contact you shortly.
+`,
+      };
+    }
+
+    return {
+      message: `
+Hello Sir/Madam 👋
+
+${botConfig?.welcomeMessage}
+
+${menu}
+`,
+    };
+  }
+}

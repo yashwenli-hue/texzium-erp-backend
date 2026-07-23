@@ -1,0 +1,26 @@
+import { Module } from '@nestjs/common';
+import { AuthModule } from './core/auth/auth.module';
+import { UsersModule } from './modules/adminos/users/users.module';
+import { RolesModule } from './modules/adminos/roles/roles.module';
+import { PermissionsModule } from './modules/adminos/permissions/permissions.module';
+import { RolePermissionsModule } from './modules/adminos/role-permissions/role-permissions.module';
+import { LeadSourcesModule } from './modules/revenueos/lead-sources/lead-sources.module';
+import { IntegrationHubModule } from './modules/adminos/integration-hub/integration-hub.module';
+import { ConnectorMappingsModule } from './modules/adminos/connector-mappings/connector-mappings.module';
+import { WebhooksModule } from './modules/adminos/webhooks/webhooks.module';
+
+
+@Module({
+  imports: [
+    AuthModule,
+    UsersModule,
+    RolesModule,
+    PermissionsModule,
+    RolePermissionsModule,
+    LeadSourcesModule,
+    IntegrationHubModule,
+    ConnectorMappingsModule,
+    WebhooksModule,
+  ],
+})
+export class AppModule {}
