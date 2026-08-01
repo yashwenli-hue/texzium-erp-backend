@@ -8,6 +8,8 @@ import { ReserveService } from './services/reserve.service';
 import { PickService } from './services/pick.service';
 import { PackService } from './services/pack.service';
 
+import { IssueService } from './services/issue.service';
+
 @Module({
   imports: [DatabaseModule],
 
@@ -16,6 +18,7 @@ import { PackService } from './services/pack.service';
   providers: [
     InventoryEngineService,
     ReserveService,
+    IssueService,
     PickService,
     PackService,
   ],
@@ -23,6 +26,7 @@ import { PackService } from './services/pack.service';
   exports: [
     InventoryEngineService,
     ReserveService,
+    IssueService,
     PickService,
     PackService,
   ],

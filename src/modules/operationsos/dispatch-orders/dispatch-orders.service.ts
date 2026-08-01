@@ -5,10 +5,14 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../../core/database/prisma.service';
 import { CreateDispatchOrderDto } from './dto/create-dispatch-order.dto';
+import { IssueService } from '../inventory-engine/services/issue.service';
 
 @Injectable()
 export class DispatchOrdersService {
-  constructor(private prisma: PrismaService) {}
+ constructor(
+  private readonly prisma: PrismaService,
+  private readonly issueService: IssueService,
+) {}
 
   async create(data: CreateDispatchOrderDto) {
 
@@ -198,25 +202,29 @@ export class DispatchOrdersService {
 );
   }
 
+  return this.prisma.$transaction(async (tx) => {
+
   for (const item of dispatchOrder.items) {
 
-  await this.prisma.dispatchOrderItem.update({
-
-    where: {
-      id: item.id,
-    },
-
-    data: {
-      isDispatched: true,
-      dispatchedQty: item.packedQty,
-    },
-
-  });
-
+  if (!item.inventoryItemId) {
+  throw new BadRequestException(
+    'Dispatch Order Item is not linked to an Inventory Item.',
+  );
 }
 
+
+  await this.issueService.issueStock(tx, {
+  inventoryItemId: item.inventoryItemId,
+  quantity: item.packedQty,
+  referenceModule: 'DISPATCH_ORDER',
+  referenceId: dispatchOrder.id,
+  remarks: 'Stock issued through Dispatch Order',
+});
+}  
+
   if (dispatchOrder.salesOrderId) {
-    await this.prisma.salesOrder.update({
+
+    await tx.salesOrder.update({
       where: {
         id: dispatchOrder.salesOrderId,
       },
@@ -224,9 +232,10 @@ export class DispatchOrdersService {
         status: 'READY_FOR_INVOICING',
       },
     });
+
   }
 
-  return this.prisma.dispatchOrder.update({
+  return tx.dispatchOrder.update({
     where: {
       id,
     },
@@ -235,5 +244,7 @@ export class DispatchOrdersService {
       gateOutTime: new Date(),
     },
   });
+
+});
 }
 }
