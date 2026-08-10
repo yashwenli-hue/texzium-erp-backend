@@ -5711,3 +5711,424 @@ InventoryMovement will integrate with:
 - RMA
 - Production
 - ProjectOS
+# Phase 5 — Inventory Reservation Architecture
+
+## 1. Objective
+
+Inventory Reservation represents a commitment of available inventory to a business requirement without physically reducing on-hand inventory.
+
+The reservation engine is responsible for:
+
+- reserving inventory
+- partially reserving inventory
+- releasing inventory
+- cancelling reservations
+- expiring reservations
+- validating available quantity
+- preventing over-reservation
+- maintaining reservation history
+
+## 2. Reservation Model
+
+A reservation must identify:
+
+- id
+- inventoryBalanceId
+- inventoryItemId
+- warehouseId
+- binId
+- batchId
+- serialId
+- requestedQty
+- reservedQty
+- releasedQty
+- status
+- reservationType
+- referenceModule
+- referenceId
+- priority
+- expiryDate
+- reservedBy
+- createdAt
+- updatedAt
+
+## 3. Reservation Status
+
+Supported statuses:
+
+- PENDING
+- PARTIALLY_RESERVED
+- RESERVED
+- PARTIALLY_RELEASED
+- RELEASED
+- CANCELLED
+- EXPIRED
+
+Status transitions must be controlled by the Reservation Engine.
+
+## 4. Reservation Quantity
+
+The reservation quantity model is:
+
+requestedQty = original requested quantity
+
+reservedQty = quantity currently reserved
+
+releasedQty = quantity released from the reservation
+
+Active reserved quantity is:
+
+reservedQty - releasedQty
+
+The system must never allow:
+
+reservedQty < releasedQty
+
+## 5. Reservation Validation
+
+Before creating or increasing a reservation:
+
+availableQty must be greater than or equal to the requested reservation quantity.
+
+The system must prevent:
+
+- negative available quantity
+- reserved quantity greater than on-hand quantity
+- duplicate reservation processing
+- reservation against blocked inventory
+- reservation against quarantined inventory
+- reservation against expired inventory
+- reservation against unavailable serials
+
+## 6. Partial Reservation
+
+If the requested quantity cannot be fully reserved, the engine may support partial reservation where the business workflow permits it.
+
+Example:
+
+Requested:
+
+100 units
+
+Available:
+
+60 units
+
+Result:
+
+60 units reserved
+40 units remaining
+
+Status:
+
+PARTIALLY_RESERVED
+
+Partial reservation must be explicitly allowed by the requesting business transaction.
+
+## 7. Reservation Release
+
+Release decreases the active reservation.
+
+Release does not modify physical on-hand quantity.
+
+Example:
+
+On hand:
+
+100
+
+Reserved:
+
+60
+
+Available:
+
+40
+
+Release:
+
+20
+
+Result:
+
+On hand:
+
+100
+
+Reserved:
+
+40
+
+Available:
+
+60
+
+## 8. Full Release
+
+When the entire active reservation is released:
+
+reservedQty = 0
+
+availableQty = onHandQty
+
+Reservation status becomes:
+
+RELEASED
+
+## 9. Cancellation
+
+Cancellation terminates the reservation request.
+
+If inventory has already been reserved, the active reservation quantity must first be released.
+
+Cancellation must preserve the original reservation history.
+
+Historical reservations must not be deleted.
+
+## 10. Expiry
+
+Reservations may contain an expiryDate.
+
+An expired reservation must not continue consuming available inventory.
+
+Expired reservations must be released according to the configured expiry process.
+
+The expiry process must be auditable.
+
+## 11. Priority
+
+Reservations may have a priority level.
+
+Example:
+
+- LOW
+- NORMAL
+- HIGH
+- CRITICAL
+
+Priority may be used when allocating limited inventory between competing requests.
+
+The final allocation algorithm will be defined separately.
+
+## 12. Reservation Types
+
+The engine may support:
+
+- SALES_ORDER
+- DISPATCH_ORDER
+- PRODUCTION
+- PROJECT
+- SERVICE
+- RMA
+- MANUAL
+- OTHER
+
+The requesting module remains responsible for the business reason.
+
+Inventory Engine remains responsible for inventory availability and reservation integrity.
+
+## 13. Reference Tracking
+
+Every reservation must identify its source:
+
+referenceModule
+
+referenceId
+
+Examples:
+
+SalesOrder
+DispatchOrder
+Project
+ProductionOrder
+ServiceTicket
+RMA
+
+The reservation must remain traceable to its originating business document.
+
+## 14. Warehouse and Bin Reservation
+
+Reservation must occur against a specific InventoryBalance where physical location is known.
+
+The system should not reserve stock against only a free-text warehouse name in the final V2 architecture.
+
+Reservation allocation should identify:
+
+- warehouse
+- bin
+- batch where applicable
+- serial where applicable
+
+## 15. Batch Reservation
+
+For batch-controlled inventory, reservations may target a specific batch.
+
+Where batch selection is not explicitly provided, the Inventory Engine may select an eligible batch according to the configured allocation strategy.
+
+Future allocation strategies may include:
+
+- FIFO
+- FEFO
+- manual selection
+- priority-based selection
+
+## 16. Serial Reservation
+
+For serialized inventory, reservation must identify the individual serial unit.
+
+A serial may have only one active reservation at a time unless a future business rule explicitly allows otherwise.
+
+## 17. Concurrency
+
+Reservation operations must execute transactionally.
+
+The engine must protect against two concurrent requests reserving the same available quantity.
+
+Example:
+
+Available quantity = 10
+
+Request A = 8
+
+Request B = 8
+
+The final result must never produce:
+
+reservedQty > onHandQty
+
+One request may succeed while the other fails or is partially fulfilled according to the configured allocation policy.
+
+## 18. Idempotency
+
+Reservation requests must support idempotent processing.
+
+Retrying the same reservation request must not create duplicate active reservations.
+
+An idempotency key or equivalent unique business reference must be used where required.
+
+## 19. Reservation and InventoryBalance
+
+Reservation updates the InventoryBalance quantities:
+
+reservedQty increases
+
+availableQty decreases
+
+onHandQty remains unchanged
+
+The relationship remains:
+
+availableQty = onHandQty - reservedQty
+
+## 20. Reservation and InventoryMovement
+
+Reservation creates an auditable inventory event.
+
+The event must record:
+
+- reservation action
+- quantity
+- inventory position
+- reference document
+- user
+- timestamp
+
+Reservation is a logical inventory commitment rather than a physical stock issue.
+
+## 21. Reservation and Dispatch
+
+Dispatch workflow may follow:
+
+Sales Order
+→ Reservation
+→ Pick
+→ Pack
+→ Issue
+→ Dispatch
+
+Dispatch must not issue more inventory than the active reservation allocated to the dispatch requirement.
+
+## 22. Reservation and Pick
+
+Pick consumes or progresses the reservation according to the configured workflow.
+
+The exact transition between reserved quantity and picked quantity must remain consistent across:
+
+InventoryBalance
+DispatchOrderItem
+Reservation
+
+## 23. Reservation and Issue
+
+When reserved stock is issued:
+
+onHandQty decreases
+
+active reservation decreases
+
+availableQty is recalculated
+
+The complete operation must occur atomically.
+
+## 24. Legacy Compatibility
+
+Existing InventoryReservation remains temporarily.
+
+Existing fields remain temporarily:
+
+- InventoryItem.reservedQty
+- InventoryItem.availableQty
+- DispatchOrderItem.reservedQty
+- DispatchOrderItem.isReserved
+
+Existing ReserveService and InventoryReservationsService will be migrated progressively.
+
+They must not become independent sources of truth in the final architecture.
+
+## 25. Authority Rule
+
+The V2 Reservation Engine becomes the authoritative reservation layer.
+
+Business modules request reservations through the Inventory Engine.
+
+Business modules must not directly modify:
+
+- InventoryBalance.reservedQty
+- InventoryBalance.availableQty
+
+without going through the Reservation Engine.
+
+## 26. Reservation History
+
+Reservation history must be retained.
+
+The system must support historical reconstruction of:
+
+- who reserved
+- what was reserved
+- when it was reserved
+- why it was reserved
+- where it was reserved
+- when it was released
+- why it was released
+- what was ultimately issued
+
+Historical reservation records must not be physically deleted.
+
+## 27. Future Integration
+
+Reservation Engine will integrate with:
+
+- InventoryBalance
+- InventoryMovement
+- InventoryLedger
+- InventoryBatch
+- InventorySerial
+- Warehouse
+- WarehouseBin
+- SalesOrder
+- DispatchOrder
+- Production
+- ProjectOS
+- Service
+- RMA
