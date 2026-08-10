@@ -2399,3 +2399,554 @@ Audit information should include:
 - Source Module
 - Source Document
 - Remarks
+
+# 11. Inventory Ledger & Costing Architecture
+
+## 11.1 Purpose
+
+The Inventory Ledger is the immutable historical record of inventory
+movements.
+
+The ledger records every inventory movement that changes inventory
+quantity or inventory valuation.
+
+Inventory Balance represents the current state.
+
+Inventory Ledger represents the historical sequence of events.
+
+Inventory Costing determines the monetary value associated with those
+inventory movements.
+
+## 11.2 Ledger Principles
+
+The Inventory Ledger must be:
+
+- Append-only
+- Immutable
+- Transactional
+- Auditable
+- Traceable to the originating business document
+
+Normal business operations must never edit or delete completed ledger
+records.
+
+Corrections must be performed through controlled compensating
+transactions.
+
+## 11.3 Ledger Entry
+
+A ledger entry should identify:
+
+- Ledger ID
+- Inventory Item
+- Warehouse
+- Location
+- Batch / Lot where applicable
+- Serial Number where applicable
+- Movement Type
+- Movement Direction
+- Quantity
+- Unit Cost
+- Total Cost
+- Balance Quantity After Movement
+- Balance Value After Movement
+- Source Module
+- Source Document
+- Source Document Line
+- Reference ID
+- User
+- Timestamp
+- Remarks
+
+The final database representation will be defined during Prisma schema
+design.
+
+## 11.4 Ledger Direction
+
+Inventory movement direction must be explicit.
+
+Inbound:
+
+Quantity increases inventory.
+
+Outbound:
+
+Quantity decreases inventory.
+
+Transfer:
+
+Source inventory decreases and destination inventory increases.
+
+Adjustment:
+
+Quantity may increase or decrease depending on the approved adjustment.
+
+## 11.5 Ledger Quantity
+
+Ledger quantity must represent the quantity affected by the movement.
+
+Examples:
+
+Purchase Receipt:
+
++100
+
+Sales Issue:
+
+-20
+
+Transfer Out:
+
+-30
+
+Transfer In:
+
++30
+
+Stock Adjustment Increase:
+
++5
+
+Stock Adjustment Decrease:
+
+-5
+
+The sign convention must be standardized during API implementation.
+
+## 11.6 Running Balance
+
+Every ledger movement should record the resulting balance where required
+for operational reporting.
+
+Example:
+
+Opening Stock:
++100
+Balance:
+100
+
+Receipt:
++50
+Balance:
+150
+
+Issue:
+-20
+Balance:
+130
+
+Issue:
+-30
+Balance:
+100
+
+The running balance is informational and must remain consistent with the
+Inventory Balance.
+
+## 11.7 Ledger and Inventory Balance
+
+Inventory Balance and Inventory Ledger must be updated in the same
+database transaction.
+
+Valid state:
+
+Inventory Balance updated
++
+Ledger entry created
+
+Invalid state:
+
+Inventory Balance updated
++
+Ledger entry missing
+
+Invalid state:
+
+Ledger entry created
++
+Inventory Balance not updated
+
+## 11.8 Ledger Reference
+
+Every ledger entry must be traceable to its business source.
+
+Examples:
+
+PROCUREMENT:
+Purchase Receipt
+
+REVENUE:
+Sales Dispatch
+
+SERVICE:
+Spare Consumption
+
+PROJECT:
+Project Material Issue
+
+PRODUCTION:
+Material Issue / Production Receipt
+
+RMA:
+Customer Return
+
+INVENTORY:
+Stock Adjustment
+
+The exact source-module enumeration will be finalized during API
+design.
+
+## 11.9 Inventory Cost
+
+Inventory Cost represents the monetary value associated with inventory.
+
+The system must distinguish:
+
+- Quantity
+- Unit Cost
+- Total Cost
+- Inventory Value
+
+Quantity and monetary value must never be conflated.
+
+## 11.10 Costing Methods
+
+TEXZIUM ERP should support configurable inventory costing methods.
+
+Initial supported methods:
+
+- FIFO
+- WEIGHTED_AVERAGE
+- STANDARD_COST
+
+The company or inventory item costing policy will determine which method
+is applied.
+
+## 11.11 FIFO Costing
+
+FIFO means First In, First Out.
+
+Inventory is valued and consumed based on the oldest eligible cost layer.
+
+Example:
+
+Receipt 1:
+100 units @ ₹100
+
+Receipt 2:
+100 units @ ₹120
+
+Issue:
+50 units
+
+FIFO consumption:
+
+50 × ₹100
+
+Remaining:
+
+50 units @ ₹100
+100 units @ ₹120
+
+Cost layers must remain traceable to their originating receipt.
+
+## 11.12 Weighted Average Costing
+
+Weighted Average Cost recalculates the average inventory cost when
+inventory is received.
+
+Example:
+
+Existing:
+
+100 units @ ₹100
+Value = ₹10,000
+
+Receipt:
+
+100 units @ ₹120
+Value = ₹12,000
+
+Combined:
+
+200 units
+Value = ₹22,000
+
+Weighted Average Cost:
+
+₹110 per unit
+
+A subsequent issue uses the applicable weighted average cost.
+
+## 11.13 Standard Costing
+
+Standard Costing assigns a predefined standard cost to an inventory
+item.
+
+Example:
+
+Standard Cost:
+₹500
+
+Receipt:
+100 units
+
+Inventory value:
+100 × ₹500
+
+Purchase price variances may be recorded separately according to the
+FinanceOS accounting design.
+
+## 11.14 Cost Layers
+
+Cost layers represent inventory quantities associated with a particular
+cost basis.
+
+A cost layer may identify:
+
+- Inventory Item
+- Receipt Reference
+- Batch
+- Quantity Received
+- Quantity Remaining
+- Unit Cost
+- Total Cost
+- Date
+
+FIFO costing depends on maintaining cost layers.
+
+## 11.15 Issue Costing
+
+When inventory is issued, the Inventory Engine must determine the cost
+according to the configured costing method.
+
+The issue must record:
+
+- Quantity
+- Unit Cost
+- Total Cost
+- Costing Method
+- Consumed Cost Layer where applicable
+
+This information is required by FinanceOS for inventory accounting.
+
+## 11.16 Transfer Costing
+
+A warehouse transfer does not create an economic gain or loss merely
+because inventory moved between locations.
+
+The destination inventory should inherit the appropriate cost basis
+from the source inventory.
+
+Transfer costing must preserve:
+
+- Original cost
+- Cost layer
+- Batch
+- Serial where applicable
+
+The exact accounting treatment will be finalized with FinanceOS.
+
+## 11.17 Return Costing
+
+Returns must preserve traceability to the original inventory movement
+where possible.
+
+A customer return may require:
+
+- Original issue cost
+- Current valuation
+- Inspection result
+- Restocking decision
+
+Returned inventory must not automatically receive an arbitrary cost.
+
+## 11.18 Scrap Costing
+
+Scrapping inventory removes its usable quantity and associated
+inventory value.
+
+The Inventory Engine must record:
+
+- Quantity scrapped
+- Cost
+- Total inventory value removed
+- Scrap reason
+- Source location
+- Reference
+- User
+
+FinanceOS may subsequently post the accounting impact.
+
+## 11.19 Adjustment Costing
+
+Inventory adjustments must determine the monetary effect of the
+quantity difference.
+
+Positive adjustment:
+
+Inventory quantity increases
++
+Inventory value increases according to the applicable valuation rule.
+
+Negative adjustment:
+
+Inventory quantity decreases
++
+Inventory value decreases according to the applicable valuation rule.
+
+The accounting treatment must remain traceable to the adjustment
+document.
+
+## 11.20 Inventory Valuation
+
+The system must be able to calculate inventory valuation by:
+
+- Inventory Item
+- Warehouse
+- Location
+- Batch
+- Serial
+- Cost Layer
+- Company
+- Financial Period
+
+Inventory valuation must support FinanceOS reporting.
+
+## 11.21 Period Closing
+
+Inventory movements may be subject to financial period controls.
+
+After an inventory/accounting period is closed:
+
+- Historical ledger entries must remain immutable.
+- Backdated movements must be restricted.
+- Corrections must follow controlled adjustment/reopening procedures.
+- Inventory valuation must remain reproducible.
+
+## 11.22 Ledger Reversal
+
+Completed ledger entries must not be edited to correct mistakes.
+
+Instead, the system must create a reversal or compensating movement.
+
+Example:
+
+Original:
+
+ISSUE
+-20
+
+Correction:
+
+ISSUE_REVERSAL
++20
+
+The original ledger entry remains unchanged.
+
+## 11.23 Duplicate Movement Protection
+
+Every movement originating from a business document must support
+duplicate detection.
+
+The same source document and source line must not accidentally create
+multiple physical inventory movements.
+
+Idempotency keys should be supported for retryable operations.
+
+## 11.24 Concurrency
+
+Ledger creation and Inventory Balance updates must participate in the
+same database transaction.
+
+Concurrent movements must be protected against:
+
+- Double issue
+- Double reservation consumption
+- Incorrect running balances
+- Duplicate transfers
+- Incorrect cost-layer consumption
+
+The final PostgreSQL concurrency strategy will be defined during
+implementation.
+
+## 11.25 Auditability
+
+Every ledger entry must remain traceable to:
+
+- User
+- Timestamp
+- Inventory Item
+- Warehouse
+- Location
+- Batch
+- Serial
+- Movement Type
+- Quantity
+- Cost
+- Source Module
+- Source Document
+- Reference
+- Reason
+
+The ledger must provide sufficient information to reconstruct the
+inventory history for audit and financial reconciliation.
+
+## 11.26 FinanceOS Integration
+
+Inventory Engine owns operational inventory movement and inventory
+valuation data.
+
+FinanceOS owns:
+
+- General Ledger
+- Journal Entries
+- Accounting Periods
+- Financial Statements
+- Inventory accounting postings
+
+Inventory Engine must provide FinanceOS with reliable inventory
+movement and valuation information.
+
+Inventory Engine must not duplicate the General Ledger.
+
+## 11.27 Costing Configuration
+
+Costing configuration must eventually support:
+
+- Company-level default costing method
+- Item-level costing method where permitted
+- Warehouse-level configuration where required
+- Effective date
+- Financial period rules
+
+Changes to costing configuration must be auditable.
+
+## 11.28 Cost Recalculation
+
+Cost recalculation must be controlled.
+
+Historical completed movements must not be silently rewritten.
+
+If a costing correction is required, the system must create a controlled
+revaluation or adjustment process.
+
+The final revaluation workflow will be designed with FinanceOS.
+
+## 11.29 Reporting
+
+The Inventory Ledger must support reports including:
+
+- Stock Movement Report
+- Stock Ledger
+- Inventory Valuation
+- Item Movement History
+- Batch Movement History
+- Serial Movement History
+- Warehouse Movement
+- Location Movement
+- Receipt History
+- Issue History
+- Transfer History
+- Adjustment History
+- Scrap History
