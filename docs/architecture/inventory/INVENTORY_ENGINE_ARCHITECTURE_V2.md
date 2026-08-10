@@ -3401,3 +3401,713 @@ Stock Count
 → Inventory Adjustment
 → Inventory Ledger
 
+# 13. Inventory Engine API Architecture
+
+## 13.1 API Design Principles
+
+The Inventory Engine API must provide controlled access to inventory
+operations.
+
+All inventory-changing APIs must:
+
+- Validate input
+- Validate inventory state
+- Validate permissions
+- Validate business rules
+- Execute database operations transactionally
+- Create inventory ledger entries where applicable
+- Create audit information
+- Support idempotency where required
+- Return deterministic results
+
+Inventory quantities must never be modified directly by external
+modules.
+
+External modules must call Inventory Engine operations.
+
+## 13.2 API Resource
+
+Base resource:
+
+/operations/inventory
+
+The exact NestJS controller route may be finalized during implementation.
+
+## 13.3 Reservation API
+
+### Reserve Inventory
+
+Operation:
+
+POST /operations/inventory/reservations
+
+Purpose:
+
+Reserve available inventory for a business requirement.
+
+Input should support:
+
+- Inventory Item
+- Quantity
+- Warehouse
+- Location
+- Batch
+- Serial
+- Reference Module
+- Reference ID
+- User
+- Remarks
+
+Validation:
+
+- Inventory Item must exist.
+- Requested quantity must be positive.
+- Available quantity must be sufficient.
+- Warehouse/location must be valid where applicable.
+- Batch/serial rules must be satisfied.
+
+Result:
+
+- Reservation ID
+- Reserved Quantity
+- Remaining Available Quantity
+- Reservation Status
+
+## 13.4 Release Reservation API
+
+Operation:
+
+POST /operations/inventory/reservations/{id}/release
+
+Purpose:
+
+Release previously reserved inventory.
+
+Validation:
+
+- Reservation must exist.
+- Reservation must be active.
+- Released quantity must not exceed reserved quantity.
+- Already released reservations cannot be released again.
+
+The operation must update reservation state and inventory availability
+transactionally.
+
+## 13.5 Pick API
+
+Operation:
+
+POST /operations/inventory/pick
+
+Purpose:
+
+Move reserved inventory into picked status.
+
+Input:
+
+- Inventory Item
+- Reservation
+- Quantity
+- Warehouse
+- Location
+- Batch
+- Serial
+- User
+- Reference
+
+Validation:
+
+- Reservation must be valid.
+- Quantity must not exceed remaining reservable quantity.
+- Inventory must exist at the applicable location.
+- Serial and batch rules must be satisfied.
+
+## 13.6 Pack API
+
+Operation:
+
+POST /operations/inventory/pack
+
+Purpose:
+
+Mark picked inventory as packed.
+
+Input:
+
+- Inventory Item
+- Pick Reference
+- Quantity
+- Warehouse
+- Location
+- Batch
+- Serial
+- User
+
+Validation:
+
+- Pick quantity must exist.
+- Packed quantity must not exceed picked quantity.
+- Inventory traceability must remain intact.
+
+## 13.7 Issue API
+
+Operation:
+
+POST /operations/inventory/issue
+
+Purpose:
+
+Issue inventory from the organization.
+
+Examples:
+
+- Sales Dispatch
+- Project Material Issue
+- Production Material Issue
+- Spare Consumption
+- Internal Consumption
+
+Input should support:
+
+- Inventory Item
+- Quantity
+- Warehouse
+- Location
+- Batch
+- Serial
+- Reference Module
+- Reference ID
+- User
+- Remarks
+
+Validation:
+
+- Inventory Item must exist.
+- Quantity must be positive.
+- Sufficient stock must exist.
+- Applicable reservations must be respected.
+- Batch/serial rules must be satisfied.
+- Costing method must be applied.
+
+Result:
+
+- Movement ID
+- Issued Quantity
+- Unit Cost
+- Total Cost
+- Remaining Stock
+
+## 13.8 Receive API
+
+Operation:
+
+POST /operations/inventory/receive
+
+Purpose:
+
+Receive inventory into stock.
+
+Sources may include:
+
+- Purchase Receipt
+- Production Receipt
+- Customer Return
+- Opening Stock
+- Inventory Adjustment
+
+Input:
+
+- Inventory Item
+- Quantity
+- Warehouse
+- Location
+- Batch
+- Serial
+- Unit Cost
+- Reference Module
+- Reference ID
+- User
+
+The operation must:
+
+1. Validate input.
+2. Create or update applicable inventory balance.
+3. Create cost layer where required.
+4. Create ledger entry.
+5. Create audit information.
+
+## 13.9 Transfer API
+
+Operation:
+
+POST /operations/inventory/transfer
+
+Purpose:
+
+Move inventory between warehouses or locations.
+
+Input:
+
+- Inventory Item
+- Source Warehouse
+- Source Location
+- Destination Warehouse
+- Destination Location
+- Quantity
+- Batch
+- Serial
+- User
+- Reference
+- Remarks
+
+The operation must create a balanced movement:
+
+Transfer Out
++
+Transfer In
+
+Both sides must succeed or both must fail.
+
+## 13.10 Adjustment API
+
+Operation:
+
+POST /operations/inventory/adjustments
+
+Purpose:
+
+Perform an authorized inventory quantity adjustment.
+
+Adjustment types:
+
+- Positive Adjustment
+- Negative Adjustment
+- Damage
+- Scrap
+- Stock Count Variance
+
+Input:
+
+- Inventory Item
+- Quantity
+- Warehouse
+- Location
+- Batch
+- Serial
+- Adjustment Type
+- Reason
+- Reference
+- User
+
+Adjustments must be permission-controlled.
+
+Where configured, approval must be completed before posting.
+
+## 13.11 Stock Count API
+
+### Create Count
+
+POST /operations/inventory/counts
+
+Creates a physical stock count.
+
+### Open Count
+
+POST /operations/inventory/counts/{id}/open
+
+Starts the count process.
+
+### Record Count
+
+POST /operations/inventory/counts/{id}/lines
+
+Records physical quantities.
+
+### Complete Count
+
+POST /operations/inventory/counts/{id}/complete
+
+Marks physical counting as completed.
+
+### Review Variance
+
+POST /operations/inventory/counts/{id}/review
+
+Calculates and exposes variances.
+
+### Approve Count
+
+POST /operations/inventory/counts/{id}/approve
+
+Approves the count for posting.
+
+### Post Count
+
+POST /operations/inventory/counts/{id}/post
+
+Creates approved inventory adjustments.
+
+### Cancel Count
+
+POST /operations/inventory/counts/{id}/cancel
+
+Cancels an unposted count.
+
+## 13.12 Batch API
+
+The Inventory Engine must provide batch-aware operations.
+
+Supported operations may include:
+
+- Create Batch
+- Receive Batch
+- Issue Batch
+- Transfer Batch
+- Inspect Batch
+- Track Batch
+- Query Batch History
+- Query Batch Expiry
+
+Batch APIs must preserve complete traceability.
+
+## 13.13 Serial API
+
+The Inventory Engine must provide serial-aware operations.
+
+Supported operations may include:
+
+- Register Serial
+- Receive Serial
+- Pick Serial
+- Pack Serial
+- Issue Serial
+- Transfer Serial
+- Return Serial
+- Inspect Serial
+- Track Serial History
+
+A serial-controlled item must not permit quantities that violate its
+serial rules.
+
+## 13.14 Ledger API
+
+Ledger APIs are primarily read-oriented.
+
+Examples:
+
+GET /operations/inventory/ledger
+
+GET /operations/inventory/ledger/{id}
+
+Filters may include:
+
+- Inventory Item
+- Warehouse
+- Location
+- Batch
+- Serial
+- Movement Type
+- Reference Module
+- Reference ID
+- Date Range
+- User
+
+Ledger records must not be directly edited through normal APIs.
+
+## 13.15 Inventory Balance API
+
+Example:
+
+GET /operations/inventory/balances
+
+Filters:
+
+- Inventory Item
+- Warehouse
+- Location
+- Batch
+- Serial
+- Condition
+
+The API should expose:
+
+- Stock Quantity
+- Reserved Quantity
+- Available Quantity
+- Unit Cost
+- Inventory Value
+
+## 13.16 Inventory Valuation API
+
+Example:
+
+GET /operations/inventory/valuation
+
+Supported dimensions:
+
+- Item
+- Warehouse
+- Location
+- Batch
+- Cost Layer
+- Date
+- Costing Method
+
+The API must return valuation information suitable for FinanceOS.
+
+## 13.17 Idempotency
+
+Inventory-changing operations must support idempotency.
+
+Example:
+
+A Dispatch Order attempts to issue stock.
+
+The request succeeds.
+
+The network fails before the caller receives the response.
+
+The caller retries.
+
+The Inventory Engine must recognize the duplicate request and must not
+issue the stock twice.
+
+Idempotency should use:
+
+- Idempotency Key
+- Source Module
+- Source Document
+- Source Line where applicable
+
+## 13.18 Transaction Boundary
+
+Every physical inventory operation must define a database transaction
+boundary.
+
+Example Issue:
+
+BEGIN TRANSACTION
+
+Validate inventory
+Validate reservation
+Validate batch/serial
+Calculate cost
+Update inventory balance
+Consume cost layer
+Create ledger
+Create audit
+Commit
+
+Any failure must rollback the complete operation.
+
+## 13.19 Error Handling
+
+Inventory APIs must return consistent business errors.
+
+Examples:
+
+INVENTORY_ITEM_NOT_FOUND
+
+INSUFFICIENT_STOCK
+
+INSUFFICIENT_AVAILABLE_STOCK
+
+INSUFFICIENT_RESERVED_STOCK
+
+INVALID_WAREHOUSE
+
+INVALID_LOCATION
+
+INVALID_BATCH
+
+INVALID_SERIAL
+
+SERIAL_ALREADY_ISSUED
+
+RESERVATION_NOT_FOUND
+
+RESERVATION_ALREADY_RELEASED
+
+INVALID_QUANTITY
+
+DUPLICATE_MOVEMENT
+
+PERIOD_CLOSED
+
+APPROVAL_REQUIRED
+
+COUNT_NOT_READY
+
+COUNT_ALREADY_POSTED
+
+## 13.20 Permission Hooks
+
+Inventory operations must expose permission hooks.
+
+Examples:
+
+inventory.view
+
+inventory.reserve
+
+inventory.release
+
+inventory.pick
+
+inventory.pack
+
+inventory.issue
+
+inventory.receive
+
+inventory.transfer
+
+inventory.adjust
+
+inventory.count
+
+inventory.approve
+
+inventory.post
+
+inventory.ledger.view
+
+inventory.valuation.view
+
+The final permission codes must follow AdminOS Permission Matrix
+standards.
+
+## 13.21 Approval Hooks
+
+Approval may be required for:
+
+- High-value adjustments
+- Large quantity adjustments
+- Stock count variances
+- Scrap
+- Damage
+- Revaluation
+- Exceptional transfers
+
+The Inventory Engine must call the centralized Approval Matrix rather
+than implementing a separate approval engine.
+
+## 13.22 Audit Hooks
+
+Inventory-changing operations must expose audit information.
+
+Audit should identify:
+
+- User
+- Operation
+- Inventory Item
+- Quantity
+- Warehouse
+- Location
+- Batch
+- Serial
+- Reference
+- Timestamp
+- Result
+
+The centralized Audit Trail Standard must remain the authoritative audit
+mechanism.
+
+## 13.23 Response Standard
+
+Successful mutation responses should provide enough information for the
+calling module to continue its workflow.
+
+Typical response:
+
+{
+  id,
+  status,
+  quantity,
+  unitCost,
+  totalCost,
+  remainingStock,
+  referenceId
+}
+
+The exact DTO response contracts will be finalized during API
+implementation.
+
+## 13.24 Cross-Module Usage
+
+Other TEXZIUM modules must call Inventory Engine rather than modifying
+inventory directly.
+
+Examples:
+
+ProcurementOS
+→ Receive Inventory
+
+RevenueOS / Dispatch
+→ Reserve / Pick / Pack / Issue
+
+ProductionOS
+→ Issue Raw Material / Receive Finished Goods
+
+ProjectOS
+→ Issue Project Material
+
+ServiceOS
+→ Issue Spare
+
+RMAOS
+→ Receive Return
+
+AssetOS
+→ Issue Asset
+
+Inventory Count
+→ Adjustment
+
+This establishes Inventory Engine as the central inventory authority.
+
+## 13.25 API Security
+
+Inventory APIs must require authenticated users.
+
+Authorization must be evaluated using AdminOS permissions.
+
+Sensitive operations must additionally evaluate:
+
+- Company
+- Warehouse
+- User Scope
+- Role
+- Approval Status
+- Financial Period
+
+## 13.26 API Versioning
+
+The Inventory Engine API should support versioned contracts.
+
+Initial target:
+
+v1
+
+Example:
+
+/api/v1/operations/inventory
+
+Future breaking changes must use a new API version rather than silently
+changing existing contracts.
+
+## 13.27 API Documentation
+
+All Inventory Engine APIs must eventually be documented using OpenAPI /
+Swagger.
+
+Documentation should include:
+
+- Request DTO
+- Response DTO
+- Validation Rules
+- Authorization Requirements
+- Error Codes
+- Examples
+- Transaction Behavior
+- Idempotency Behavior
