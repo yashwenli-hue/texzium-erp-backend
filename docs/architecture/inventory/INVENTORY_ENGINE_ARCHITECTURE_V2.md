@@ -2036,3 +2036,366 @@ Audit information should include:
 - Previous Status
 - New Status
 - Remarks
+
+# 10. Serial Number Architecture
+
+## 10.1 Purpose
+
+Serial Number management provides individual-unit traceability for
+serialized inventory.
+
+Each serialized physical unit must be individually identifiable and
+traceable throughout its inventory and business lifecycle.
+
+## 10.2 Serial Tracking Policy
+
+Inventory Items may be configured as:
+
+- NON_TRACKED
+- BATCH_TRACKED
+- SERIAL_TRACKED
+
+A future configuration may support combined batch and serial tracking.
+
+Serial tracking requirements must be determined by the Inventory Item
+master configuration.
+
+## 10.3 Serial Identity
+
+Each serialized unit must have a unique serial identity.
+
+A Serial Number record should support:
+
+- Serial ID
+- Serial Number
+- Inventory Item
+- Batch / Lot where applicable
+- Current Warehouse
+- Current Location
+- Current Status
+- Receipt Reference
+- Current Ownership Context
+- Created At
+- Updated At
+
+The final uniqueness rules will be finalized during Prisma schema
+design.
+
+## 10.4 Serial Status
+
+Initial serial statuses are:
+
+- AVAILABLE
+- RESERVED
+- PICKED
+- PACKED
+- ISSUED
+- INSTALLED
+- IN_SERVICE
+- RETURNED
+- QC_HOLD
+- BLOCKED
+- SCRAPPED
+
+Status transitions must be controlled by the Inventory Engine and
+related business workflows.
+
+## 10.5 Serial Quantity Rule
+
+For serialized inventory:
+
+One Serial Number represents one physical unit.
+
+Therefore:
+
+Serial Quantity = 1
+
+The Inventory Engine must never allow a single serial number to
+represent a quantity greater than one.
+
+## 10.6 Serial Receipt
+
+When serialized inventory is received:
+
+1. Validate the Inventory Item.
+2. Validate the serial number.
+3. Ensure the serial number is not already active for another unit.
+4. Create or register the serial.
+5. Assign warehouse and location.
+6. Apply QC status where required.
+7. Create the inventory movement.
+8. Create the ledger entry.
+
+The receipt must remain traceable to the originating document.
+
+## 10.7 Serial Reservation
+
+Serialized inventory may be reserved in two ways:
+
+### Generic Reservation
+
+The business requirement reserves a quantity of serialized inventory
+without selecting specific serial numbers.
+
+The Inventory Engine selects eligible serials during allocation or
+picking.
+
+### Specific Serial Reservation
+
+The business requirement explicitly selects one or more serial numbers.
+
+The selected serials must be validated for:
+
+- Availability
+- Warehouse
+- Location
+- Status
+- Item
+- Batch where applicable
+
+## 10.8 Serial Allocation
+
+Serial allocation must never allocate:
+
+- A blocked serial
+- A scrapped serial
+- An issued serial
+- An installed serial
+- A serial already reserved by another active requirement
+
+The allocation must be atomic.
+
+## 10.9 Serial Picking
+
+Picking serialized inventory must identify the actual serial numbers
+physically picked.
+
+Example:
+
+Requested:
+
+3 units
+
+Selected:
+
+SN001
+SN002
+SN003
+
+The system must preserve this relationship with the Dispatch Order Item
+and inventory reservation.
+
+## 10.10 Serial Packing
+
+Packing must preserve serial traceability.
+
+Each packed serialized unit must remain associated with its serial
+number.
+
+The system must prevent the same serial from being packed twice for
+different shipments.
+
+## 10.11 Serial Issue
+
+Issue represents physical removal of serialized inventory from normal
+inventory.
+
+For each serial issued:
+
+- Serial status changes appropriately
+- Current inventory location is updated
+- Inventory balance is updated
+- Inventory ledger entry is created
+- Business reference is recorded
+
+The entire operation must be transactional.
+
+## 10.12 Serial Dispatch
+
+Dispatch completion must retain serial traceability.
+
+The system must be able to answer:
+
+Which serial numbers were dispatched on this Dispatch Order?
+
+The relationship should be:
+
+Dispatch Order
+    ↓
+Dispatch Order Item
+    ↓
+Serial Allocation
+    ↓
+Serial Number
+
+## 10.13 Serial Installation
+
+If a serialized product is installed at a customer or project location,
+the serial lifecycle may continue:
+
+ISSUED
+   ↓
+INSTALLED
+   ↓
+IN_SERVICE
+
+Installation must not erase historical inventory information.
+
+The system must retain:
+
+- Original receipt
+- Previous warehouse
+- Issue document
+- Dispatch document
+- Customer/project
+- Installation record
+
+## 10.14 Serial and Asset Management
+
+A serialized inventory item may become an Asset after installation or
+capitalization according to FinanceOS / AssetOS rules.
+
+The Inventory Engine must not duplicate Asset ownership logic.
+
+Instead, it must provide the serial identity and movement history that
+AssetOS requires.
+
+## 10.15 Serial Warranty
+
+WarrantyOS may reference the serial number to determine:
+
+- Warranty start
+- Warranty end
+- Product identity
+- Customer
+- Installation
+- Service history
+
+Inventory Engine remains responsible for serial identity and movement
+history.
+
+Warranty business rules remain outside the Inventory Engine.
+
+## 10.16 Serial Service
+
+ServiceOS may reference a serialized product during:
+
+- Service Ticket
+- Engineer Visit
+- Spare Consumption
+- Repair
+- Replacement
+
+Inventory Engine remains responsible for the serial's inventory
+movement.
+
+ServiceOS remains responsible for service workflow.
+
+## 10.17 Serial Return
+
+When a serialized product is returned:
+
+1. Identify the serial.
+2. Validate the return reference.
+3. Change serial status to RETURNED or QC_HOLD.
+4. Assign the appropriate return location.
+5. Create the inventory movement.
+6. Create the ledger entry.
+7. Preserve the original serial history.
+
+Returned serialized inventory must not automatically become available.
+
+## 10.18 Serial Transfer
+
+A serial may move between:
+
+- Warehouses
+- Locations
+- Staging areas
+- Service locations
+- Customer/project locations
+
+Every movement must be recorded.
+
+Example:
+
+Delhi / A-01
+    ↓
+TRANSFER
+    ↓
+Mumbai / B-04
+
+The serial's current location becomes Mumbai / B-04.
+
+Historical movements remain immutable.
+
+## 10.19 Serial Replacement
+
+When a serialized product is replaced:
+
+Old Serial:
+SN001
+
+Replacement:
+SN002
+
+The system must retain both histories and record the replacement
+relationship.
+
+The old serial must not be overwritten.
+
+## 10.20 Serial Duplicate Prevention
+
+The Inventory Engine must enforce duplicate serial protection.
+
+A serial number that is already registered as an active serialized
+unit must not be registered again for the same inventory context.
+
+Any business-specific exception must be explicitly authorized and
+audited.
+
+## 10.21 Serial Traceability
+
+The system must support complete forward and backward traceability.
+
+Backward:
+
+Serial
+→ Receipt
+→ Supplier
+→ Purchase Document
+
+Forward:
+
+Serial
+→ Reservation
+→ Pick
+→ Pack
+→ Issue
+→ Dispatch
+→ Customer / Project
+→ Installation
+→ Warranty
+→ Service
+→ Return
+
+## 10.22 Serial Audit
+
+Serial-related actions must be auditable.
+
+Audit information should include:
+
+- Serial Number
+- Inventory Item
+- Batch where applicable
+- Warehouse
+- Location
+- Previous Status
+- New Status
+- Quantity
+- Action
+- User
+- Timestamp
+- Source Module
+- Source Document
+- Remarks
