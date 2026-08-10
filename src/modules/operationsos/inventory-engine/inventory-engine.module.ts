@@ -11,6 +11,7 @@ import { PackService } from './services/pack.service';
 import { IssueService } from './services/issue.service';
 import { MovementService } from './services/movement.service';
 
+import { ReceiveService } from './services/receive.service';
 
 @Module({
   imports: [DatabaseModule],
@@ -24,6 +25,7 @@ import { MovementService } from './services/movement.service';
     PickService,
     PackService,
     MovementService,
+    ReceiveService,
   ],
 
   exports: [
@@ -33,6 +35,7 @@ import { MovementService } from './services/movement.service';
     PickService,
     PackService,
     MovementService,
+    ReceiveService,
   ],
 })
 export class InventoryEngineModule {}
