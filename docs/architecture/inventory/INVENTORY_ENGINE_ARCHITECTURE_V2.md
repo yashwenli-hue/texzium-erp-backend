@@ -867,3 +867,424 @@ Every movement must be traceable to:
 
 Inventory history must remain auditable after the original business
 document is completed.
+
+# 7. Inventory Reservation Engine
+
+## 7.1 Purpose
+
+The Reservation Engine manages logical commitments of available
+inventory to business requirements.
+
+Reservation does not physically move inventory.
+
+Reservation reduces the quantity available for new allocation while
+leaving physical On Hand Quantity unchanged.
+
+## 7.2 Reservation Lifecycle
+
+The standard reservation lifecycle is:
+
+AVAILABLE
+    ↓
+RESERVED
+    ↓
+CONSUMED
+
+A reservation may alternatively be:
+
+AVAILABLE
+    ↓
+RESERVED
+    ↓
+RELEASED
+
+or:
+
+AVAILABLE
+    ↓
+RESERVED
+    ↓
+EXPIRED
+
+depending on the business process.
+
+## 7.3 Reserve
+
+Reserve creates a logical commitment against available inventory.
+
+Reserve validation must verify:
+
+1. Inventory Item exists.
+2. Warehouse exists when warehouse tracking is enabled.
+3. Location exists when location tracking is enabled.
+4. Required quantity is greater than zero.
+5. Available Quantity is sufficient.
+6. Batch requirements are satisfied when applicable.
+7. Serial requirements are satisfied when applicable.
+8. The requesting business document is valid.
+
+Reserve operation:
+
+On Hand:
+No change
+
+Reserved:
++ Quantity
+
+Available:
+- Quantity
+
+A reservation record must be created.
+
+## 7.4 Reservation Record
+
+Each reservation must identify:
+
+- Inventory Item
+- Warehouse
+- Location
+- Batch / Lot where applicable
+- Serial Number where applicable
+- Quantity
+- Reservation Status
+- Reservation Type
+- Source Module
+- Source Document
+- Source Document Line where applicable
+- Reserved By
+- Reserved At
+- Expiry Date where applicable
+- Priority
+- Remarks
+
+The existing InventoryReservation entity must be evaluated and
+extended during database implementation rather than creating duplicate
+reservation concepts.
+
+## 7.5 Reservation Statuses
+
+The initial reservation statuses are:
+
+- RESERVED
+- PARTIALLY_CONSUMED
+- CONSUMED
+- RELEASED
+- EXPIRED
+- CANCELLED
+
+Status transitions must be controlled by the Inventory Engine.
+
+## 7.6 Partial Reservation
+
+A business requirement may request more inventory than is currently
+available.
+
+The Inventory Engine must support controlled partial reservation when
+the calling workflow allows it.
+
+Example:
+
+Requested:
+100
+
+Available:
+60
+
+Possible result:
+
+Reserved:
+60
+
+Unfulfilled:
+40
+
+Whether partial reservation is permitted must be determined by the
+calling business workflow.
+
+## 7.7 Multiple Reservations
+
+Multiple business requirements may reserve the same Inventory Item.
+
+The Inventory Engine must ensure that the total active reservation
+quantity does not exceed reservable inventory.
+
+Example:
+
+On Hand:
+100
+
+Reservation A:
+30
+
+Reservation B:
+20
+
+Reservation C:
+40
+
+Total Reserved:
+90
+
+Available:
+10
+
+A new reservation of 20 must fail unless inventory becomes available.
+
+## 7.8 Reservation Priority
+
+Reservations may have priority levels.
+
+Initial priority levels:
+
+- LOW
+- NORMAL
+- HIGH
+- CRITICAL
+
+Priority may be used during allocation and shortage management.
+
+Priority must not allow the system to exceed physical available
+inventory.
+
+## 7.9 Reservation Release
+
+Release removes a logical commitment without physically moving stock.
+
+Release operation:
+
+On Hand:
+No change
+
+Reserved:
+- Quantity
+
+Available:
++ Quantity
+
+The reservation record must transition to an appropriate status.
+
+A release must be idempotent.
+
+The same reservation quantity must not be released twice.
+
+## 7.10 Reservation Consumption
+
+When reserved inventory is physically issued, the reservation is
+consumed.
+
+Consumption must occur as part of the same database transaction as the
+physical issue.
+
+Example:
+
+Before issue:
+
+On Hand:
+100
+
+Reserved:
+30
+
+Available:
+70
+
+Issue:
+30
+
+After issue:
+
+On Hand:
+70
+
+Reserved:
+0
+
+Available:
+70
+
+The reservation must transition to CONSUMED.
+
+## 7.11 Partial Consumption
+
+A reservation may be consumed partially.
+
+Example:
+
+Reservation:
+50
+
+Issue:
+20
+
+Remaining Reservation:
+30
+
+The reservation status becomes:
+
+PARTIALLY_CONSUMED
+
+The remaining 30 remains reserved.
+
+## 7.12 Reservation Cancellation
+
+Cancellation releases any remaining reserved quantity.
+
+Cancellation must not alter historical consumed quantities.
+
+Example:
+
+Original Reservation:
+50
+
+Consumed:
+20
+
+Remaining:
+30
+
+Cancellation releases only:
+
+30
+
+The historical 20 remains consumed.
+
+## 7.13 Reservation Expiry
+
+Reservations may have an expiry date.
+
+Expired reservations must not continue blocking inventory.
+
+Expiry processing must:
+
+1. Identify expired active reservations.
+2. Release their remaining quantities.
+3. Update reservation status.
+4. Restore Available Quantity.
+5. Create an audit record.
+
+Automatic expiry processing may be implemented through a scheduled
+background job.
+
+## 7.14 Reservation Source
+
+Reservations must identify the business process that created them.
+
+Examples:
+
+Sales Order:
+REVENUE
+
+Production Requirement:
+PRODUCTION
+
+Service Requirement:
+SERVICE
+
+Project Requirement:
+PROJECT
+
+Internal Requirement:
+INTERNAL
+
+The final source-module enumeration will be standardized during API
+and database design.
+
+## 7.15 Reservation and Dispatch
+
+DispatchOS may request inventory reservation for a Dispatch Order Item.
+
+The logical flow is:
+
+Sales Order
+    ↓
+Dispatch Order
+    ↓
+Dispatch Order Item
+    ↓
+Inventory Reservation
+    ↓
+Pick
+    ↓
+Pack
+    ↓
+Issue
+    ↓
+Dispatch
+
+DispatchOS owns the dispatch workflow.
+
+Inventory Engine owns the inventory reservation and physical stock
+operations.
+
+## 7.16 Reservation and Pick
+
+Picking does not automatically mean physical inventory has been issued.
+
+Pick represents warehouse execution of a reservation.
+
+The Inventory Engine must distinguish:
+
+Reserved:
+Logical commitment
+
+Picked:
+Physical warehouse execution state
+
+Issued:
+Physical inventory removal
+
+These states must not be conflated.
+
+## 7.17 Reservation and Pack
+
+Packing is a warehouse execution state.
+
+Packing does not itself necessarily remove inventory from On Hand.
+
+The physical inventory issue occurs according to the configured business
+workflow, normally at the Issue / Dispatch stage.
+
+## 7.18 Reservation Validation
+
+Before creating a reservation, the Inventory Engine must validate the
+current inventory balance inside a database transaction.
+
+The validation and reservation update must be protected against
+concurrent reservation requests.
+
+Two simultaneous requests must not reserve the same available quantity.
+
+## 7.19 Reservation Idempotency
+
+Repeated reservation requests must not create duplicate reservations.
+
+Where the business document provides a unique reservation reference,
+the Inventory Engine must use that reference to guarantee idempotency.
+
+## 7.20 Reservation Audit
+
+Every reservation action must be auditable.
+
+The audit trail must identify:
+
+- User
+- Timestamp
+- Inventory Item
+- Warehouse
+- Location
+- Quantity
+- Source Module
+- Source Document
+- Action
+- Previous Status
+- New Status
+- Remarks
+
+Actions include:
+
+- CREATED
+- PARTIALLY_CONSUMED
+- CONSUMED
+- RELEASED
+- EXPIRED
+- CANCELLED
