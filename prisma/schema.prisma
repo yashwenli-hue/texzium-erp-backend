@@ -424,6 +424,7 @@ model InventoryItem {
   productTags      ProductTag[]
 
   transactions InventoryTransaction[]
+  balances     InventoryBalance[]
 
   hsnMaster HSNMaster? @relation(fields: [hsnMasterId], references: [id])
 }
@@ -1842,4 +1843,104 @@ model DocumentNumberSeries {
   createdAt DateTime @default(now())
 
   updatedAt DateTime @updatedAt
+}
+
+// ==========================================================
+// INVENTORY ENGINE V2
+// BATCH 1 — WAREHOUSE / LOCATION / INVENTORY BALANCE
+// ==========================================================
+
+model Warehouse {
+  id          String   @id @default(uuid())
+  code        String   @unique
+  name        String
+  description String?
+  status      String   @default("ACTIVE")
+  address     String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  zones    WarehouseZone[]
+  balances InventoryBalance[]
+}
+
+model WarehouseZone {
+  id          String   @id @default(uuid())
+  warehouseId String
+  code        String
+  name        String
+  status      String   @default("ACTIVE")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  warehouse Warehouse       @relation(fields: [warehouseId], references: [id])
+  racks     WarehouseRack[]
+
+  @@unique([warehouseId, code])
+  @@index([warehouseId])
+}
+
+model WarehouseRack {
+  id              String   @id @default(uuid())
+  warehouseZoneId String
+  code            String
+  name            String
+  status          String   @default("ACTIVE")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  warehouseZone WarehouseZone  @relation(fields: [warehouseZoneId], references: [id])
+  bins          WarehouseBin[]
+
+  @@unique([warehouseZoneId, code])
+  @@index([warehouseZoneId])
+}
+
+model WarehouseBin {
+  id              String   @id @default(uuid())
+  warehouseRackId String
+  code            String
+  name            String
+  status          String   @default("ACTIVE")
+  capacityQty     Float?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  warehouseRack WarehouseRack      @relation(fields: [warehouseRackId], references: [id])
+  balances      InventoryBalance[]
+
+  @@unique([warehouseRackId, code])
+  @@index([warehouseRackId])
+}
+
+model InventoryBalance {
+  id String @id @default(uuid())
+
+  inventoryItemId String
+  warehouseId     String
+  warehouseBinId  String?
+
+  batchId  String?
+  serialId String?
+
+  quantityOnHand    Float @default(0)
+  quantityReserved  Float @default(0)
+  quantityAvailable Float @default(0)
+  quantityBlocked   Float @default(0)
+  quantityDamaged   Float @default(0)
+
+  averageUnitCost Float @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  inventoryItem InventoryItem @relation(fields: [inventoryItemId], references: [id])
+  warehouse     Warehouse     @relation(fields: [warehouseId], references: [id])
+  warehouseBin  WarehouseBin? @relation(fields: [warehouseBinId], references: [id])
+
+  @@index([inventoryItemId])
+  @@index([warehouseId])
+  @@index([warehouseBinId])
+  @@index([batchId])
+  @@index([serialId])
 }
