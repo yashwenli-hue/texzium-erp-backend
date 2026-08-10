@@ -7080,3 +7080,890 @@ FinanceOS
     = accounting authority
 
 No business module may bypass these authorities for posted inventory transactions.
+
+# Phase 7 — Stock Audit, Physical Count & Reconciliation Architecture
+
+## 1. Objective
+
+The Stock Audit and Reconciliation layer provides controlled verification between:
+
+System Inventory
+
+and
+
+Physically Counted Inventory.
+
+It is responsible for:
+
+- physical stock counts
+- cycle counts
+- full stock counts
+- blind counts
+- recounts
+- variance calculation
+- variance investigation
+- reconciliation
+- approval
+- inventory adjustment
+- batch reconciliation
+- serial reconciliation
+- warehouse reconciliation
+- bin reconciliation
+- audit history
+
+This layer must not be confused with Quality Inspection.
+
+Quality Inspection determines whether received goods meet quality requirements.
+
+Stock Reconciliation determines whether physical inventory matches system inventory.
+
+---
+
+## 2. Core Concepts
+
+The architecture contains:
+
+StockCount
+    ↓
+StockCountLine
+    ↓
+CountResult
+    ↓
+Variance
+    ↓
+Investigation
+    ↓
+Approval
+    ↓
+InventoryAdjustment
+
+Each stage must remain traceable.
+
+---
+
+## 3. Stock Count
+
+A StockCount represents a physical inventory counting session.
+
+A StockCount should support:
+
+- id
+- countNumber
+- countType
+- status
+- warehouseId
+- scheduledDate
+- startedAt
+- completedAt
+- initiatedBy
+- approvedBy
+- remarks
+- createdAt
+- updatedAt
+
+---
+
+## 4. Count Types
+
+Supported count types:
+
+- FULL_COUNT
+- CYCLE_COUNT
+- SPOT_COUNT
+- BLIND_COUNT
+- RECOUNT
+- AUDIT_COUNT
+
+### FULL_COUNT
+
+Counts all eligible inventory in the selected scope.
+
+### CYCLE_COUNT
+
+Counts selected inventory periodically according to an inventory counting schedule.
+
+### SPOT_COUNT
+
+Counts selected inventory because of a specific operational requirement.
+
+### BLIND_COUNT
+
+The counter does not see the system quantity before entering the physical quantity.
+
+### RECOUNT
+
+A second or subsequent count performed because of a discrepancy.
+
+### AUDIT_COUNT
+
+A controlled count initiated for audit or investigation purposes.
+
+---
+
+## 5. Count Scope
+
+A count may be scoped by:
+
+- company
+- warehouse
+- zone
+- rack
+- bin
+- inventory item
+- category
+- batch
+- serial
+- inventory condition
+
+The final implementation should allow flexible scope without requiring every count to specify every dimension.
+
+---
+
+## 6. Count Status
+
+Supported statuses:
+
+- DRAFT
+- SCHEDULED
+- IN_PROGRESS
+- COUNT_SUBMITTED
+- VARIANCE_REVIEW
+- RECOUNT_REQUIRED
+- PENDING_APPROVAL
+- APPROVED
+- POSTED
+- CANCELLED
+
+Status transitions must be controlled.
+
+---
+
+## 7. Count Line
+
+Each StockCount contains one or more count lines.
+
+A count line identifies the inventory position being counted.
+
+It should support:
+
+- id
+- stockCountId
+- inventoryItemId
+- warehouseId
+- binId
+- batchId
+- serialId
+- systemQty
+- countedQty
+- varianceQty
+- unitCost
+- varianceValue
+- countStatus
+- remarks
+
+---
+
+## 8. System Quantity Snapshot
+
+When a count begins, the system quantity must be captured as a snapshot.
+
+Example:
+
+System quantity at count start:
+
+100
+
+Physical count:
+
+97
+
+Variance:
+
+-3
+
+The original system snapshot must not change because subsequent inventory transactions may occur.
+
+---
+
+## 9. Physical Quantity
+
+The counted quantity represents the actual quantity physically observed.
+
+The system must distinguish:
+
+systemQty
+
+from
+
+countedQty.
+
+They must never be treated as the same field.
+
+---
+
+## 10. Variance Calculation
+
+Variance quantity:
+
+countedQty - systemQty
+
+Example:
+
+System:
+
+100
+
+Physical:
+
+97
+
+Variance:
+
+-3
+
+Example:
+
+System:
+
+100
+
+Physical:
+
+105
+
+Variance:
+
++5
+
+---
+
+## 11. Variance Value
+
+Variance value is calculated using the applicable inventory valuation cost.
+
+varianceValue:
+
+varianceQty × applicableUnitCost
+
+The costing engine determines the applicable cost.
+
+The Stock Audit layer must not implement an independent costing system.
+
+---
+
+## 12. Positive Variance
+
+Positive variance means:
+
+countedQty > systemQty
+
+Example:
+
+System:
+
+100
+
+Physical:
+
+105
+
+Variance:
+
++5
+
+After approval, the inventory adjustment increases system inventory by 5.
+
+---
+
+## 13. Negative Variance
+
+Negative variance means:
+
+countedQty < systemQty
+
+Example:
+
+System:
+
+100
+
+Physical:
+
+97
+
+Variance:
+
+-3
+
+After approval, the inventory adjustment decreases system inventory by 3.
+
+---
+
+## 14. Zero Variance
+
+If:
+
+countedQty = systemQty
+
+then:
+
+varianceQty = 0
+
+No inventory adjustment is required.
+
+The count may proceed directly to completion according to the configured workflow.
+
+---
+
+## 15. Blind Counting
+
+Blind counts should hide system quantity from the person performing the count.
+
+The counter submits:
+
+countedQty
+
+without knowing:
+
+systemQty.
+
+The system calculates variance after submission.
+
+Blind counting reduces the risk of counters unconsciously matching the expected system quantity.
+
+---
+
+## 16. Recount
+
+A recount may be triggered when:
+
+- variance exceeds configured tolerance
+- serial numbers do not match
+- batch quantities do not match
+- management requests verification
+- audit policy requires a second count
+
+The original count must remain preserved.
+
+The recount creates a new count result.
+
+---
+
+## 17. Multiple Counts
+
+A stock position may be counted multiple times during a reconciliation process.
+
+Example:
+
+Count 1:
+
+97
+
+Recount:
+
+98
+
+Final approved quantity:
+
+98
+
+The system must preserve both results.
+
+---
+
+## 18. Variance Tolerance
+
+Organizations may configure variance tolerances.
+
+Tolerance may be based on:
+
+- quantity
+- percentage
+- monetary value
+
+Example:
+
+Tolerance:
+
+±2 units
+
+A variance of:
+
+1
+
+may be auto-approved.
+
+A variance of:
+
+5
+
+may require investigation.
+
+The final tolerance rules must be configurable.
+
+---
+
+## 19. Variance Investigation
+
+Material discrepancies should create an investigation workflow.
+
+Investigation may capture:
+
+- reason
+- suspected cause
+- responsible department
+- supporting document
+- comments
+- corrective action
+- investigator
+- investigation date
+
+Possible reasons:
+
+- unrecorded receipt
+- unrecorded issue
+- wrong warehouse
+- wrong bin
+- damaged stock
+- theft/loss
+- counting error
+- duplicate transaction
+- incorrect opening balance
+- system error
+- transfer not recorded
+- batch mismatch
+- serial mismatch
+
+---
+
+## 20. Serial Reconciliation
+
+For serialized inventory, reconciliation must verify the individual serial numbers.
+
+Example:
+
+System:
+
+SN001
+SN002
+SN003
+
+Physical:
+
+SN001
+SN003
+SN004
+
+The system must identify:
+
+Missing:
+
+SN002
+
+Unexpected:
+
+SN004
+
+Serialized reconciliation must not rely only on aggregate quantity.
+
+---
+
+## 21. Batch Reconciliation
+
+For batch-controlled inventory, reconciliation should identify:
+
+- batch
+- system quantity
+- physical quantity
+- variance
+- batch status
+- expiry where applicable
+
+A total quantity match does not necessarily mean batch reconciliation succeeded.
+
+Example:
+
+System:
+
+Batch A = 50
+Batch B = 50
+
+Physical:
+
+Batch A = 40
+Batch B = 60
+
+Total:
+
+100 = 100
+
+But batch-level reconciliation fails.
+
+---
+
+## 22. Warehouse Reconciliation
+
+The system must support reconciliation at warehouse level.
+
+Example:
+
+Warehouse A
+
+System:
+
+1,000
+
+Physical:
+
+990
+
+Variance:
+
+-10
+
+The adjustment must be posted against the appropriate warehouse inventory balance.
+
+---
+
+## 23. Bin Reconciliation
+
+Where bin-level inventory is enabled, reconciliation should occur at bin level.
+
+Example:
+
+Bin A:
+
+System 50
+
+Physical 45
+
+Bin B:
+
+System 50
+
+Physical 55
+
+Total quantity matches.
+
+However, bin reconciliation identifies a location discrepancy.
+
+The system must not automatically treat this as zero variance if location accuracy is part of the count scope.
+
+---
+
+## 24. Count Freeze Policy
+
+A count may operate under different transaction policies.
+
+### Hard Freeze
+
+Inventory movements are blocked in the counted scope.
+
+### Soft Freeze
+
+Inventory movements continue, but the system records transactions occurring after the count snapshot.
+
+### Snapshot Mode
+
+The count uses the captured system quantity at count start and reconciles against the snapshot.
+
+The final implementation should support configurable count policy.
+
+---
+
+## 25. Movement During Count
+
+If inventory moves during a count, the system must preserve transaction timing.
+
+Example:
+
+Count snapshot:
+
+100
+
+During count:
+
++20 receipt
+
+Physical count:
+
+120
+
+The reconciliation engine must understand that:
+
+system snapshot = 100
+
+movement after snapshot = +20
+
+physical = 120
+
+Therefore:
+
+adjustment = 0
+
+The system must not incorrectly create a +20 adjustment.
+
+---
+
+## 26. Approval
+
+Material variances require approval before inventory adjustment is posted.
+
+Approval may depend on:
+
+- quantity
+- percentage
+- value
+- warehouse
+- item category
+- user role
+- variance reason
+
+Approval integrates with the ERP Approval Matrix.
+
+---
+
+## 27. Inventory Adjustment
+
+An approved variance generates an Inventory Adjustment.
+
+The adjustment must pass through:
+
+Inventory Movement
+        ↓
+Inventory Balance
+        ↓
+Inventory Ledger
+
+The Stock Audit module must not directly modify stock quantities.
+
+---
+
+## 28. Adjustment Types
+
+Supported adjustment types:
+
+- STOCK_GAIN
+- STOCK_LOSS
+- LOCATION_CORRECTION
+- BATCH_CORRECTION
+- SERIAL_CORRECTION
+- COUNT_CORRECTION
+
+The actual inventory impact must be represented through Inventory Movement.
+
+---
+
+## 29. Audit Trail
+
+Every important action must be auditable:
+
+- count creation
+- count assignment
+- count start
+- count submission
+- recount
+- variance creation
+- investigation
+- approval
+- rejection
+- adjustment posting
+- cancellation
+
+Existing ERP AuditLog should be used for system-level audit events.
+
+---
+
+## 30. Existing StockInspection Boundary
+
+The existing StockInspection model currently represents inspection associated with inventory and sales orders.
+
+It must not be repurposed as the physical stock counting engine.
+
+The V2 architecture keeps:
+
+StockInspection
+    =
+condition / inspection process
+
+StockCount
+    =
+physical inventory verification
+
+---
+
+## 31. Existing QualityInspection Boundary
+
+The existing QualityInspection process is associated with GoodsReceipt and determines accepted/rejected quantities.
+
+It remains separate from StockCount.
+
+Quality Inspection:
+
+"Is the received inventory acceptable?"
+
+Stock Count:
+
+"Does physical inventory match system inventory?"
+
+---
+
+## 32. Period Control
+
+Inventory reconciliation must respect ERP period controls.
+
+A closed inventory/accounting period must not permit uncontrolled historical adjustments.
+
+Backdated adjustments require controlled authorization.
+
+FinanceOS period controls remain authoritative for accounting periods.
+
+---
+
+## 33. Reconciliation Report
+
+The system should provide reconciliation reports showing:
+
+- item
+- warehouse
+- bin
+- batch
+- serial
+- system quantity
+- counted quantity
+- variance quantity
+- unit cost
+- variance value
+- count status
+- approval status
+- adjustment status
+
+---
+
+## 34. Inventory Audit Report
+
+The system should support historical audit reconstruction.
+
+For a selected inventory position, users should be able to see:
+
+Opening quantity
++
+Receipts
++
+Returns
+-
+Issues
+±
+Adjustments
+=
+Closing quantity
+
+The calculated closing quantity must reconcile with the Inventory Balance.
+
+---
+
+## 35. Reconciliation Integrity Rule
+
+For a completed and posted count:
+
+System quantity
++
+approved adjustments
+=
+reconciled physical quantity
+
+Any discrepancy after posting indicates an unresolved system integrity issue.
+
+---
+
+## 36. Duplicate Adjustment Prevention
+
+The same approved variance must not be posted twice.
+
+The adjustment must have a unique relationship to the approved count result.
+
+Retrying the posting operation must not create duplicate inventory adjustments.
+
+---
+
+## 37. Transaction Integrity
+
+Count approval and inventory adjustment posting must be transactional.
+
+The following must succeed or fail together:
+
+- approval state
+- adjustment creation
+- inventory movement
+- inventory balance update
+- inventory ledger entry
+- audit event
+
+---
+
+## 38. Historical Preservation
+
+The following records must never be physically deleted after posting:
+
+- StockCount
+- StockCountLine
+- CountResult
+- Variance
+- Investigation
+- Approval
+- InventoryAdjustment
+- InventoryMovement
+- InventoryLedger
+
+Corrections must be represented by subsequent records.
+
+---
+
+## 39. Future Prisma Models
+
+The V2 architecture is expected to introduce dedicated models for concepts such as:
+
+- StockCount
+- StockCountLine
+- StockCountResult
+- StockVariance
+- StockInvestigation
+- InventoryAdjustment
+
+Exact field definitions, indexes, foreign keys, constraints and unique rules will be defined during the Prisma implementation phase.
+
+---
+
+## 40. Authority Rules
+
+The final architecture establishes:
+
+StockCount
+    =
+physical verification authority
+
+StockVariance
+    =
+discrepancy authority
+
+InventoryMovement
+    =
+physical adjustment authority
+
+InventoryBalance
+    =
+current quantity authority
+
+InventoryLedger
+    =
+historical valuation authority
+
+AuditLog
+    =
+system audit authority
+
+FinanceOS
+    =
+financial accounting authority
+
+No Stock Audit operation may bypass the Inventory Engine when changing posted inventory quantities.
