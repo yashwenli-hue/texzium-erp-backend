@@ -6132,3 +6132,951 @@ Reservation Engine will integrate with:
 - ProjectOS
 - Service
 - RMA
+
+# Phase 6 — Inventory Ledger & Costing Architecture
+
+## 1. Objective
+
+The Inventory Ledger is the permanent historical record of inventory movements and inventory valuation.
+
+The Ledger must provide a complete and auditable history of:
+
+- inventory receipts
+- inventory issues
+- transfers
+- reservations
+- reservation releases
+- adjustments
+- returns
+- stock counts
+- opening balances
+- cost changes
+- valuation changes
+
+The Inventory Ledger is immutable.
+
+Corrections must be performed through reversal or adjustment transactions rather than modifying historical ledger records.
+
+---
+
+## 2. Separation of Responsibilities
+
+Inventory Engine maintains three separate concepts.
+
+### Inventory Balance
+
+Answers:
+
+"How much inventory exists?"
+
+Responsible for:
+
+- on-hand quantity
+- reserved quantity
+- available quantity
+- warehouse quantity
+- bin quantity
+- batch quantity
+- serial status
+
+### Inventory Movement
+
+Answers:
+
+"What physical inventory movement occurred?"
+
+Examples:
+
+- RECEIPT
+- ISSUE
+- TRANSFER
+- RETURN
+- ADJUSTMENT
+- OPENING_BALANCE
+
+### Inventory Ledger
+
+Answers:
+
+"What is the complete historical and valuation record of inventory?"
+
+The Ledger records:
+
+- movement reference
+- quantity
+- unit cost
+- total cost
+- valuation impact
+- running valuation
+- source document
+- timestamp
+- user
+
+---
+
+## 3. Ledger Immutability
+
+Inventory Ledger records must never be updated or deleted after posting.
+
+If an error occurs:
+
+Original transaction
+        ↓
+Reversal
+        ↓
+Correct transaction
+
+Historical records remain preserved.
+
+This is required for:
+
+- audit
+- financial reconciliation
+- stock reconstruction
+- inventory valuation
+- compliance
+
+---
+
+## 4. Ledger Record
+
+The future InventoryLedger model should contain at minimum:
+
+- id
+- inventoryItemId
+- warehouseId
+- binId
+- batchId
+- serialId
+- movementId
+- transactionType
+- referenceModule
+- referenceId
+- quantity
+- unitCost
+- totalCost
+- quantityBefore
+- quantityAfter
+- valuationBefore
+- valuationAfter
+- costMethod
+- createdBy
+- createdAt
+
+Additional fields may be added during the Prisma design phase.
+
+---
+
+## 5. Quantity Ledger
+
+For every physical movement the ledger must record:
+
+quantityBefore
+
+movementQuantity
+
+quantityAfter
+
+Example:
+
+Opening stock = 100
+
+Receipt = +50
+
+Issue = -20
+
+Ledger:
+
+100
++50
+=150
+
+150
+-20
+=130
+
+The ledger must be reconstructable from historical movements.
+
+---
+
+## 6. Valuation Ledger
+
+Inventory valuation must track:
+
+quantity
+
+× unit cost
+
+= inventory value
+
+Example:
+
+100 units
+
+₹500/unit
+
+Inventory value:
+
+₹50,000
+
+A receipt of:
+
+20 units
+
+₹550/unit
+
+creates:
+
+₹11,000
+
+additional inventory value.
+
+New inventory:
+
+120 units
+
+₹61,000 total value.
+
+---
+
+## 7. Cost Layers
+
+For layer-based costing, inventory receipts create cost layers.
+
+Example:
+
+Receipt A
+
+100 units
+
+₹500
+
+Cost Layer A:
+
+100 × ₹500
+
+= ₹50,000
+
+Receipt B
+
+50 units
+
+₹550
+
+Cost Layer B:
+
+50 × ₹550
+
+= ₹27,500
+
+Total:
+
+150 units
+
+₹77,500
+
+---
+
+## 8. Cost Layer Fields
+
+The future CostLayer model should support:
+
+- id
+- inventoryItemId
+- warehouseId
+- binId
+- batchId
+- receiptMovementId
+- sourceModule
+- sourceReferenceId
+- originalQty
+- remainingQty
+- consumedQty
+- unitCost
+- totalCost
+- layerStatus
+- receivedAt
+- createdAt
+- updatedAt
+
+---
+
+## 9. FIFO Costing
+
+FIFO means:
+
+First In
+First Out
+
+The oldest eligible cost layer is consumed first.
+
+Example:
+
+Layer A:
+
+100 units × ₹500
+
+Layer B:
+
+50 units × ₹550
+
+Issue:
+
+120 units
+
+Consumption:
+
+100 units from Layer A
+
+20 units from Layer B
+
+COGS:
+
+100 × ₹500
+
++
+
+20 × ₹550
+
+=
+
+₹61,000
+
+Remaining:
+
+30 units × ₹550
+
+---
+
+## 10. Weighted Average Costing
+
+Weighted Average Cost calculates a blended cost.
+
+Example:
+
+100 units × ₹500
+
+= ₹50,000
+
+50 units × ₹550
+
+= ₹27,500
+
+Total quantity:
+
+150
+
+Total value:
+
+₹77,500
+
+Weighted average:
+
+₹77,500 / 150
+
+= ₹516.67
+
+An issue of 20 units therefore produces approximately:
+
+20 × ₹516.67
+
+= ₹10,333.40
+
+The exact calculation must use sufficient decimal precision internally.
+
+---
+
+## 11. LIFO
+
+LIFO means:
+
+Last In
+First Out
+
+The newest eligible cost layer is consumed first.
+
+Example:
+
+Layer A:
+
+100 × ₹500
+
+Layer B:
+
+50 × ₹550
+
+Issue:
+
+20
+
+LIFO consumes:
+
+20 × ₹550
+
+The system may retain LIFO as an available costing strategy, but accounting and statutory applicability must be governed by FinanceOS configuration and applicable accounting policy.
+
+---
+
+## 12. Costing Method Configuration
+
+Costing method must not be hard-coded into individual services.
+
+The system should support configuration at an appropriate organizational or inventory policy level.
+
+Possible values:
+
+- FIFO
+- WEIGHTED_AVERAGE
+- LIFO
+- STANDARD_COST
+
+The final supported methods will be determined during FinanceOS integration.
+
+---
+
+## 13. Standard Cost
+
+Standard Cost may be supported for organizations that operate with predefined standard inventory costs.
+
+Under Standard Cost:
+
+Inventory quantity movements still occur normally.
+
+Valuation uses the configured standard cost.
+
+Differences between:
+
+Actual Cost
+
+and
+
+Standard Cost
+
+must be recorded separately for variance analysis.
+
+---
+
+## 14. Receipt Cost
+
+Inventory receipts must capture the cost associated with the receipt.
+
+Possible sources include:
+
+- Purchase Order
+- Goods Receipt
+- Vendor Bill
+- Opening Balance
+- Production
+- Customer Return
+- Stock Adjustment
+
+The source transaction remains traceable.
+
+---
+
+## 15. Purchase Receipt Cost Flow
+
+Purchase flow:
+
+Purchase Order
+        ↓
+Goods Receipt
+        ↓
+Inventory Movement
+        ↓
+Cost Layer
+        ↓
+Inventory Ledger
+        ↓
+Inventory Balance
+
+The Goods Receipt should provide the quantity received.
+
+The costing engine determines the applicable inventory valuation.
+
+---
+
+## 16. Vendor Bill Cost Adjustment
+
+Where vendor billing occurs after receipt, the final inventory cost may differ from the provisional receipt cost.
+
+Example:
+
+Receipt cost:
+
+₹500
+
+Final vendor cost:
+
+₹520
+
+Difference:
+
+₹20
+
+The system must support cost adjustment without rewriting the original receipt ledger.
+
+The difference must be recorded as a separate valuation adjustment.
+
+---
+
+## 17. Landed Cost
+
+Future landed-cost functionality may allocate additional costs such as:
+
+- freight
+- customs duty
+- insurance
+- handling
+- clearing charges
+- import charges
+
+Landed cost may increase the inventory valuation of eligible receipts.
+
+The original receipt cost must remain historically visible.
+
+---
+
+## 18. Inventory Issue Cost
+
+When inventory is issued, the costing engine determines the issue cost based on the configured costing method.
+
+Example:
+
+Issue:
+
+20 units
+
+Cost:
+
+₹500/unit
+
+Issue value:
+
+₹10,000
+
+The issue must create a ledger entry and valuation impact.
+
+---
+
+## 19. COGS Integration
+
+For sales-related inventory issues:
+
+Inventory Issue
+        ↓
+Costing Engine
+        ↓
+Issue Cost
+        ↓
+FinanceOS
+        ↓
+COGS
+        ↓
+Inventory Asset Reduction
+
+Inventory Engine determines the inventory cost.
+
+FinanceOS determines the accounting treatment.
+
+---
+
+## 20. Inventory Return
+
+Inventory returns must determine the appropriate return valuation.
+
+A return may originate from:
+
+- Customer
+- Production
+- Service
+- RMA
+- Internal process
+
+Return costing must preserve traceability to the original issue where possible.
+
+---
+
+## 21. Stock Adjustment
+
+Stock adjustments must record:
+
+- adjustment reason
+- quantity difference
+- valuation difference
+- approving user
+- reference document
+- timestamp
+
+Example:
+
+System quantity:
+
+100
+
+Physical quantity:
+
+97
+
+Adjustment:
+
+-3
+
+The adjustment creates a ledger movement.
+
+The historical balance is not rewritten.
+
+---
+
+## 22. Physical Stock Count
+
+Stock count flow:
+
+Stock Count
+      ↓
+Count Result
+      ↓
+Variance
+      ↓
+Approval
+      ↓
+Inventory Adjustment
+      ↓
+Inventory Ledger
+
+The physical count itself is not a ledger movement.
+
+The approved adjustment creates the ledger movement.
+
+---
+
+## 23. Negative Inventory
+
+Negative inventory should be prohibited by default.
+
+The engine must prevent:
+
+onHandQty < 0
+
+availableQty < 0
+
+reservedQty < 0
+
+unless an explicit organizational policy permits controlled negative inventory.
+
+Such policy must be configurable and auditable.
+
+---
+
+## 24. Cost Precision
+
+Inventory costing must not rely on low-precision floating-point arithmetic for financial valuation.
+
+The final implementation should use appropriate decimal precision for:
+
+- unit cost
+- total cost
+- valuation
+- cost layers
+- COGS
+
+Database and application precision must be defined during the Prisma implementation phase.
+
+---
+
+## 25. Ledger Sequence
+
+Each physical movement must produce a deterministic sequence:
+
+1. Validate source transaction
+2. Validate inventory availability
+3. Determine quantity impact
+4. Determine cost impact
+5. Update Inventory Balance
+6. Consume/create Cost Layers where applicable
+7. Create Inventory Movement
+8. Create Inventory Ledger
+9. Generate accounting integration event
+10. Record audit information
+
+The entire operation must be transactional.
+
+---
+
+## 26. Cost Layer Consumption
+
+For FIFO/LIFO:
+
+Issue quantity is allocated across cost layers.
+
+Example:
+
+Layer A = 10 units
+Layer B = 20 units
+Issue = 15
+
+Result:
+
+Layer A consumed = 10
+
+Layer B consumed = 5
+
+The engine must preserve the exact allocation.
+
+---
+
+## 27. Cost Layer Integrity
+
+The system must prevent:
+
+remainingQty < 0
+
+consumedQty > originalQty
+
+remainingQty + consumedQty != originalQty
+
+A cost layer may only be consumed by valid inventory issues.
+
+---
+
+## 28. Transfer Cost
+
+Warehouse transfer normally changes physical location without changing inventory value.
+
+Example:
+
+Warehouse A:
+
+100 units × ₹500
+
+Transfer:
+
+20 units
+
+Warehouse B:
+
+20 units × ₹500
+
+Total inventory valuation remains:
+
+₹50,000
+
+The transfer must create location-level ledger records while preserving inventory value.
+
+---
+
+## 29. Batch Cost
+
+Batch-controlled inventory may maintain batch-specific cost.
+
+Example:
+
+Batch A:
+
+100 × ₹500
+
+Batch B:
+
+100 × ₹600
+
+The costing engine must preserve batch traceability when batch-specific costing is required.
+
+---
+
+## 30. Serial Cost
+
+Serialized inventory may maintain cost at the individual serial level.
+
+Example:
+
+Serial A:
+
+₹50,000
+
+Serial B:
+
+₹52,000
+
+Issue of Serial A must use the cost associated with Serial A.
+
+---
+
+## 31. Inventory Valuation Snapshot
+
+The system should support valuation snapshots for reporting.
+
+Possible snapshot dimensions:
+
+- company
+- inventory item
+- warehouse
+- bin
+- batch
+- date
+- costing method
+
+Snapshots are reporting structures and must not replace the immutable ledger.
+
+---
+
+## 32. Period Closing
+
+Inventory periods may be closed.
+
+After period closing:
+
+- historical ledger records cannot be modified
+- backdated inventory transactions require controlled authorization
+- valuation changes require controlled adjustment
+- accounting reconciliation must be preserved
+
+Integration with FinanceOS period controls will govern financial posting periods.
+
+---
+
+## 33. Reversal
+
+Every posted inventory movement should support controlled reversal where business rules permit.
+
+Reversal creates a new compensating movement.
+
+Original movement remains unchanged.
+
+Example:
+
+Original:
+
++100
+
+Reversal:
+
+-100
+
+Net:
+
+0
+
+Both records remain auditable.
+
+---
+
+## 34. Auditability
+
+The system must be able to answer:
+
+- What quantity existed?
+- Where was it stored?
+- What was its cost?
+- Which transaction changed it?
+- Which user performed the transaction?
+- Which document caused the transaction?
+- Which cost layer was consumed?
+- What valuation changed?
+- What accounting event was generated?
+
+---
+
+## 35. FinanceOS Boundary
+
+Inventory Engine owns:
+
+- inventory quantity
+- inventory movement
+- inventory valuation calculation
+- cost layer management
+- inventory ledger
+
+FinanceOS owns:
+
+- journal entries
+- chart of accounts
+- accounting periods
+- COGS account
+- inventory asset account
+- financial posting
+- accounting reconciliation
+
+Inventory Engine must not directly implement the complete accounting engine.
+
+Integration occurs through a defined accounting event/interface.
+
+---
+
+## 36. Existing ERP Compatibility
+
+The current InventoryItem model contains:
+
+- stockQty
+- reservedQty
+- availableQty
+
+These fields remain part of the legacy/current operational model during migration.
+
+The existing InventoryTransaction model remains an existing transaction mechanism.
+
+The existing SpareConsumption.unitCost field remains compatible with the future costing architecture.
+
+However, these existing structures must not be assumed to represent the complete V2 ledger or costing architecture.
+
+---
+
+## 37. Migration Strategy
+
+Migration should occur in stages:
+
+Stage 1:
+
+Introduce InventoryLedger.
+
+Stage 2:
+
+Introduce CostLayer.
+
+Stage 3:
+
+Connect InventoryMovement to Ledger.
+
+Stage 4:
+
+Connect receipt transactions to CostLayer.
+
+Stage 5:
+
+Connect issue transactions to CostLayer.
+
+Stage 6:
+
+Enable FIFO/Weighted Average costing.
+
+Stage 7:
+
+Integrate inventory valuation with FinanceOS.
+
+Stage 8:
+
+Retire or reduce legacy costing logic after reconciliation.
+
+No existing historical inventory data should be discarded during migration.
+
+---
+
+## 38. Authority Rule
+
+The final V2 architecture establishes:
+
+InventoryBalance
+    = quantity authority
+
+InventoryMovement
+    = movement authority
+
+InventoryLedger
+    = historical and valuation authority
+
+CostLayer
+    = layer-cost authority
+
+FinanceOS
+    = accounting authority
+
+No business module may bypass these authorities for posted inventory transactions.
