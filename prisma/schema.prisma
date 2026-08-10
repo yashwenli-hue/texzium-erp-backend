@@ -426,6 +426,9 @@ model InventoryItem {
   transactions InventoryTransaction[]
   balances     InventoryBalance[]
 
+  batches InventoryBatch[]
+  serials InventorySerial[]
+
   hsnMaster HSNMaster? @relation(fields: [hsnMasterId], references: [id])
 }
 
@@ -1938,9 +1941,65 @@ model InventoryBalance {
   warehouse     Warehouse     @relation(fields: [warehouseId], references: [id])
   warehouseBin  WarehouseBin? @relation(fields: [warehouseBinId], references: [id])
 
+  batch  InventoryBatch?  @relation(fields: [batchId], references: [id])
+  serial InventorySerial? @relation(fields: [serialId], references: [id])
+
   @@index([inventoryItemId])
   @@index([warehouseId])
   @@index([warehouseBinId])
   @@index([batchId])
   @@index([serialId])
+}
+
+// ==========================================================
+// INVENTORY ENGINE V2
+// BATCH 2 — BATCH & SERIAL TRACEABILITY
+// ==========================================================
+
+model InventoryBatch {
+  id                String    @id @default(uuid())
+  inventoryItemId   String
+  batchNumber       String
+  manufacturingDate DateTime?
+  expiryDate        DateTime?
+  supplierBatchNo   String?
+  unitCost          Float     @default(0)
+  quantityReceived  Float     @default(0)
+  status            String    @default("ACTIVE")
+  remarks           String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  inventoryItem InventoryItem @relation(fields: [inventoryItemId], references: [id])
+  serials       InventorySerial[]
+  balances      InventoryBalance[]
+
+  @@unique([inventoryItemId, batchNumber])
+  @@index([inventoryItemId])
+  @@index([batchNumber])
+  @@index([expiryDate])
+  @@index([status])
+}
+
+model InventorySerial {
+  id              String    @id @default(uuid())
+  inventoryItemId String
+  batchId         String?
+  serialNumber    String    @unique
+  status          String    @default("IN_STOCK")
+  receivedDate    DateTime?
+  issuedDate      DateTime?
+  warrantyStart   DateTime?
+  warrantyEnd     DateTime?
+  remarks         String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  inventoryItem InventoryItem @relation(fields: [inventoryItemId], references: [id])
+  batch         InventoryBatch? @relation(fields: [batchId], references: [id])
+  balances      InventoryBalance[]
+
+  @@index([inventoryItemId])
+  @@index([batchId])
+  @@index([status])
 }
