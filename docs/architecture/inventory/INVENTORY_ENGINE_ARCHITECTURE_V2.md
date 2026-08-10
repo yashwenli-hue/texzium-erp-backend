@@ -4905,3 +4905,193 @@ Future batch and serial tracking will extend the inventory balance model.
 Warehouse and location masters are foundational infrastructure.
 
 Inventory quantities must not depend on free-text warehouse or bin names in the V2 architecture.
+
+# Phase 2 — Inventory Balance Architecture
+
+## 1. Objective
+
+InventoryBalance is the authoritative V2 stock-position model.
+
+It represents the quantity of a specific InventoryItem at a specific physical inventory location, with optional batch and serial traceability.
+
+## 2. Inventory Balance
+
+InventoryBalance represents one inventory position.
+
+Core attributes:
+
+- id
+- inventoryItemId
+- warehouseId
+- binId
+- batchId
+- serialId
+- onHandQty
+- reservedQty
+- availableQty
+- status
+- createdAt
+- updatedAt
+
+## 3. Quantity Model
+
+The quantity relationship is:
+
+Available Quantity = On Hand Quantity - Reserved Quantity
+
+The system must maintain:
+
+- onHandQty >= 0
+- reservedQty >= 0
+- availableQty >= 0
+- reservedQty <= onHandQty
+
+## 4. Physical Location
+
+Every InventoryBalance belongs to a Warehouse.
+
+A balance may optionally reference a WarehouseBin during transitional implementation.
+
+V2 inventory transactions should progressively use relational warehouse and bin references instead of free-text location fields.
+
+## 5. Batch Association
+
+batchId is nullable.
+
+For non-batch-controlled inventory:
+
+batchId = null
+
+For batch-controlled inventory:
+
+batchId references the applicable inventory batch.
+
+## 6. Serial Association
+
+serialId is nullable.
+
+For non-serialized inventory:
+
+serialId = null
+
+For serialized inventory:
+
+serialId references the applicable inventory serial record.
+
+A serialized inventory balance normally represents one serialized unit.
+
+## 7. Uniqueness
+
+The system must prevent duplicate inventory positions.
+
+The logical uniqueness rule is:
+
+InventoryItem + Warehouse + Bin + Batch + Serial
+
+Only one active InventoryBalance should represent the same inventory position.
+
+## 8. Reservation
+
+Reservation changes only the reserved quantity.
+
+Reservation:
+
+onHandQty remains unchanged.
+
+reservedQty increases.
+
+availableQty decreases.
+
+Formula:
+
+availableQty = onHandQty - reservedQty
+
+## 9. Issue
+
+Issue decreases physical stock.
+
+Issue:
+
+onHandQty decreases.
+
+reservedQty decreases when the issue consumes reserved stock.
+
+availableQty is recalculated.
+
+## 10. Receipt
+
+Receipt increases physical stock.
+
+Receipt:
+
+onHandQty increases.
+
+availableQty increases when the received quantity is not already reserved.
+
+## 11. Transfer
+
+A transfer moves stock between inventory positions.
+
+Source balance:
+
+onHandQty decreases.
+
+Destination balance:
+
+onHandQty increases.
+
+The transfer must be represented as an atomic business operation.
+
+## 12. Adjustment
+
+Stock adjustment changes onHandQty based on an approved adjustment.
+
+Every adjustment must create an inventory movement/ledger record.
+
+## 13. Status
+
+InventoryBalance status will support future inventory controls such as:
+
+- ACTIVE
+- BLOCKED
+- QUARANTINED
+- HOLD
+- CLOSED
+
+The exact status transition rules will be defined in the Inventory Movement and Quality phases.
+
+## 14. Legacy Compatibility
+
+Existing InventoryItem quantity fields remain temporarily:
+
+- stockQty
+- reservedQty
+- availableQty
+- warehouse
+
+They will not be removed during Phase 2.
+
+InventoryBalance becomes the V2 foundation while legacy fields are migrated progressively.
+
+## 15. Authority Rule
+
+During the final V2 architecture:
+
+InventoryBalance becomes the authoritative operational stock-position source.
+
+InventoryItem remains the inventory/product-level master and must not be used as the primary warehouse-level stock ledger.
+
+## 16. Future Extensions
+
+InventoryBalance will integrate with:
+
+- InventoryMovement
+- InventoryLedger
+- InventoryReservation
+- Warehouse
+- WarehouseBin
+- InventoryBatch
+- InventorySerial
+- CostLayer
+- StockCount
+- StockAdjustment
