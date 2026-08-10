@@ -1682,3 +1682,357 @@ changes.
 
 DispatchOS must not directly update InventoryItem stock quantities.
 
+# 9. Batch & Lot Traceability
+
+## 9.1 Purpose
+
+Batch and Lot management provides traceability for inventory that must
+be identified and controlled by a batch or lot number.
+
+Batch-controlled inventory must remain traceable from receipt through
+storage, reservation, picking, issue, dispatch, return, adjustment,
+and final disposition.
+
+## 9.2 Batch Applicability
+
+Batch tracking is optional at the Inventory Item level.
+
+Each Inventory Item must have a defined tracking policy indicating
+whether it is:
+
+- NON_TRACKED
+- BATCH_TRACKED
+- SERIAL_TRACKED
+
+A future configuration may support combined batch and serial tracking
+where required.
+
+## 9.3 Batch Identity
+
+A Batch must have a unique identity within the applicable inventory
+context.
+
+The Batch concept should support:
+
+- Batch ID
+- Batch Number
+- Inventory Item
+- Manufacturing Date
+- Expiry Date
+- Supplier Reference
+- Purchase Reference
+- Quality Status
+- Batch Status
+- Remarks
+- Created At
+- Updated At
+
+The exact database uniqueness rule will be finalized during Prisma
+schema design.
+
+## 9.4 Batch Status
+
+Initial batch statuses are:
+
+- ACTIVE
+- QC_HOLD
+- APPROVED
+- BLOCKED
+- EXPIRED
+- EXHAUSTED
+- QUARANTINED
+- SCRAPPED
+
+Status transitions must be controlled.
+
+An EXPIRED, BLOCKED, QUARANTINED, or SCRAPPED batch must not be
+allocated as normal available inventory.
+
+## 9.5 Batch Quantity
+
+Batch quantity must be represented through Inventory Balance rather than
+maintaining an independent conflicting quantity counter.
+
+Example:
+
+Inventory Item:
+ABC-001
+
+Warehouse:
+Delhi
+
+Bin:
+A-01
+
+Batch:
+BATCH-001
+
+Inventory Balance:
+
+On Hand:
+100
+
+Reserved:
+20
+
+Available:
+80
+
+The Batch identifies the traceability dimension while Inventory Balance
+maintains the operational quantity.
+
+## 9.6 Batch Receipt
+
+When batch-controlled inventory is received:
+
+1. Validate the Inventory Item.
+2. Validate or create the Batch according to business policy.
+3. Record the received quantity.
+4. Assign the batch to the receiving location.
+5. Create the inventory movement.
+6. Create the ledger entry.
+7. Apply QC status where required.
+
+The batch must be traceable to the originating receipt.
+
+## 9.7 Batch and Quality Control
+
+A received batch may initially be placed under QC Hold.
+
+Example:
+
+Received:
+100
+
+QC Hold:
+100
+
+Available:
+0
+
+After QC approval:
+
+QC Hold:
+0
+
+Available:
+100
+
+The release from QC must be an auditable inventory state transition.
+
+## 9.8 Batch Allocation
+
+When inventory is reserved, the Inventory Engine may allocate specific
+batches according to the applicable allocation policy.
+
+Allocation policies may include:
+
+- FIFO
+- FEFO
+- Manual Selection
+- Specific Batch Selection
+
+The allocation policy must be configurable according to the Inventory
+Item and business workflow.
+
+## 9.9 FIFO
+
+FIFO means First In, First Out.
+
+The Inventory Engine selects the oldest eligible batch based on the
+configured FIFO date.
+
+FIFO must only consider batches that are:
+
+- Active
+- Available
+- Not blocked
+- Not expired
+- Eligible for the requesting transaction
+
+## 9.10 FEFO
+
+FEFO means First Expiry, First Out.
+
+For expiry-controlled inventory, FEFO should normally prioritize the
+batch with the earliest valid expiry date.
+
+Expired batches must not be automatically allocated.
+
+## 9.11 Manual Batch Selection
+
+Authorized users may manually select a batch.
+
+Manual selection must still validate:
+
+- Available quantity
+- Batch status
+- Expiry
+- Warehouse
+- Location
+- Reservation quantity
+- Required QC status
+
+Manual selection must be auditable.
+
+## 9.12 Multi-Batch Fulfillment
+
+One business requirement may be fulfilled using multiple batches.
+
+Example:
+
+Requested:
+100
+
+Batch A:
+60
+
+Batch B:
+40
+
+The resulting allocation is:
+
+Batch A → 60
+Batch B → 40
+
+Each batch allocation must remain independently traceable.
+
+## 9.13 Batch Reservation
+
+When a batch is specifically allocated to a reservation, the
+reservation must identify the batch.
+
+If the reservation is not batch-specific, the Inventory Engine may
+select the appropriate batch during allocation according to the
+configured allocation policy.
+
+## 9.14 Batch Picking
+
+Picking batch-controlled inventory must identify the actual batch
+physically picked.
+
+The picked batch must match the reservation/allocation unless an
+authorized substitution workflow is used.
+
+## 9.15 Batch Packing
+
+Packing must preserve batch traceability.
+
+The packed quantity must remain associated with its batch allocation.
+
+## 9.16 Batch Issue
+
+When batch-controlled inventory is issued:
+
+1. Validate batch status.
+2. Validate available quantity.
+3. Validate warehouse and location.
+4. Validate reservation where required.
+5. Reduce the appropriate Inventory Balance.
+6. Create the Inventory Ledger entry.
+7. Record the batch in the business transaction.
+
+Batch issue must be atomic.
+
+## 9.17 Batch Transfer
+
+A batch transfer moves a specific quantity of a batch from one inventory
+location to another.
+
+Example:
+
+Delhi / A-01 / Batch A:
+100
+
+Transfer:
+30
+
+Result:
+
+Delhi / A-01 / Batch A:
+70
+
+Mumbai / B-04 / Batch A:
+30
+
+Both movements must occur within one database transaction.
+
+## 9.18 Batch Return
+
+Returned batch inventory must retain its original batch identity when
+the batch can be reliably identified.
+
+If batch identity cannot be verified, the return must enter a controlled
+inspection or quarantine workflow.
+
+Returned inventory must not automatically become available.
+
+## 9.19 Batch Expiry
+
+Expiry-controlled batches must support automated expiry monitoring.
+
+Expired batches must:
+
+- Become ineligible for normal allocation
+- Remain physically traceable
+- Remain visible in inventory reporting
+- Be available for controlled disposition
+
+Expiry must not silently delete or remove the batch.
+
+## 9.20 Batch Traceability
+
+The system must support forward and backward traceability.
+
+Backward traceability:
+
+Batch
+→ Receipt
+→ Supplier
+→ Purchase Document
+
+Forward traceability:
+
+Batch
+→ Reservation
+→ Pick
+→ Issue
+→ Dispatch
+→ Customer / Business Document
+
+The exact downstream relationships will be implemented through
+inventory movement references.
+
+## 9.21 Batch and Serial Relationship
+
+A product may be configured as:
+
+- Batch controlled
+- Serial controlled
+- Non-tracked
+
+Where combined batch and serial tracking is required, each serial must
+belong to the applicable batch.
+
+The final combined tracking model will be defined during Serial Number
+Architecture.
+
+## 9.22 Batch Audit
+
+Batch-related actions must be auditable.
+
+Audit information should include:
+
+- Batch
+- Inventory Item
+- Warehouse
+- Location
+- Quantity
+- Action
+- User
+- Timestamp
+- Source Module
+- Source Document
+- Previous Status
+- New Status
+- Remarks
