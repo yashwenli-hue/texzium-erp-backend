@@ -167,3 +167,203 @@ Ledger records must not be edited or deleted as part of normal business
 operations.
 
 Corrections must be performed through compensating inventory movements.
+
+# 4. Inventory Balance & Quantity Model
+
+## 4.1 Purpose
+
+Inventory Balance represents the current inventory position of an
+Inventory Item at a specific inventory location and traceability
+dimension.
+
+Inventory Balance is the operational source used by the Inventory
+Engine to determine current stock availability.
+
+The balance must be uniquely identifiable by its inventory dimensions.
+
+## 4.2 Inventory Balance Dimensions
+
+The logical dimensions of an Inventory Balance are:
+
+1. Inventory Item
+2. Warehouse
+3. Location / Bin
+4. Inventory Status
+5. Batch / Lot, when applicable
+6. Serial Number, when applicable
+
+Not every inventory item requires batch or serial tracking.
+
+## 4.3 Quantity Definitions
+
+### On Hand Quantity
+
+On Hand Quantity represents the physical quantity currently held at
+the inventory location.
+
+It changes when physical inventory is received, issued, transferred,
+adjusted, returned, scrapped, or otherwise physically moved.
+
+### Reserved Quantity
+
+Reserved Quantity represents inventory committed to a business
+requirement but not yet physically issued.
+
+Reservation does not reduce physical On Hand Quantity.
+
+### Available Quantity
+
+Available Quantity represents inventory that may be newly reserved or
+otherwise allocated.
+
+The logical relationship is:
+
+Available Quantity = On Hand Quantity - Reserved Quantity
+
+The Inventory Engine must prevent Available Quantity from becoming
+negative.
+
+### Blocked Quantity
+
+Blocked Quantity represents inventory that physically exists but cannot
+currently be allocated for normal business use.
+
+Examples include:
+
+- Damaged stock
+- Restricted stock
+- Compliance hold
+- Management hold
+
+### QC Hold Quantity
+
+QC Hold Quantity represents inventory awaiting or restricted by quality
+inspection.
+
+QC Hold inventory must not be considered normally available until the
+quality process releases it.
+
+## 4.4 Quantity Integrity Rules
+
+The Inventory Engine must enforce the following rules:
+
+1. On Hand Quantity cannot become negative unless a future business rule
+   explicitly permits controlled negative inventory.
+
+2. Reserved Quantity cannot exceed reservable On Hand Quantity.
+
+3. Available Quantity cannot become negative.
+
+4. Blocked Quantity cannot be allocated as normal available inventory.
+
+5. QC Hold Quantity cannot be allocated as normal available inventory.
+
+6. Inventory movement must update the affected balance transactionally.
+
+7. Every physical movement must create an Inventory Ledger transaction.
+
+8. A failed inventory transaction must roll back all related balance
+   changes.
+
+## 4.5 Example
+
+SKU:
+
+ABC-001
+
+Warehouse:
+
+Delhi Warehouse
+
+Bin:
+
+A-01-02
+
+Batch:
+
+BATCH-2026-001
+
+Current position:
+
+On Hand: 100
+Reserved: 20
+Available: 80
+Blocked: 0
+QC Hold: 0
+
+A reservation of 15 units results in:
+
+On Hand: 100
+Reserved: 35
+Available: 65
+Blocked: 0
+QC Hold: 0
+
+The physical quantity remains 100.
+
+An issue of 15 units after reservation results in:
+
+On Hand: 85
+Reserved: 20
+Available: 65
+Blocked: 0
+QC Hold: 0
+
+The reservation is consumed as part of the issue.
+
+## 4.6 Multi-Warehouse Example
+
+The same Inventory Item may exist at multiple locations:
+
+Delhi / Bin A-01-02:
+On Hand = 100
+
+Mumbai / Bin B-02-01:
+On Hand = 250
+
+Jaipur / Bin C-03-05:
+On Hand = 75
+
+These are separate inventory balances.
+
+The Inventory Engine must never combine physical location balances
+into a single location record.
+
+## 4.7 Reservation and Physical Stock
+
+Reservation is a logical commitment.
+
+It does not physically move inventory.
+
+Therefore:
+
+Reserve:
+- On Hand remains unchanged
+- Reserved increases
+- Available decreases
+
+Issue:
+- On Hand decreases
+- Reserved decreases when consuming a reservation
+- Available is recalculated
+
+Release:
+- On Hand remains unchanged
+- Reserved decreases
+- Available increases
+
+## 4.8 Inventory Balance and Ledger
+
+Inventory Balance represents the current state.
+
+Inventory Ledger represents the historical sequence of movements.
+
+The two serve different purposes:
+
+Inventory Balance:
+"How much stock do we have now?"
+
+Inventory Ledger:
+"How did we arrive at this balance?"
+
+The Inventory Engine must maintain both consistently.
