@@ -5330,3 +5330,384 @@ InventoryBatch and InventorySerial will integrate with:
 - Warranty
 - ServiceTicket
 - RMA
+
+# Phase 4 — Inventory Movement Architecture
+
+## 1. Objective
+
+InventoryMovement is the authoritative business event representing a change in inventory quantity, location, reservation state, or inventory status.
+
+All stock-changing operations must pass through the Inventory Engine movement layer.
+
+## 2. Movement Types
+
+The V2 Inventory Engine will support:
+
+- RECEIPT
+- ISSUE
+- RESERVATION
+- RELEASE
+- TRANSFER
+- ADJUSTMENT_IN
+- ADJUSTMENT_OUT
+- RETURN
+- PICK
+- PACK
+- PUTAWAY
+- SCRAP
+
+Additional movement types may be introduced when required by other OperationsOS modules.
+
+## 3. Movement Structure
+
+Every movement must identify:
+
+- id
+- movementType
+- inventoryItemId
+- warehouseId
+- binId
+- batchId
+- serialId
+- quantity
+- referenceModule
+- referenceId
+- reason
+- createdBy
+- createdAt
+
+For transfers, both source and destination inventory positions must be represented.
+
+## 4. Quantity Direction
+
+Inventory movement quantity follows a consistent direction.
+
+Inbound movement:
+
+quantity > 0
+
+Outbound movement:
+
+quantity > 0 but movementType determines the business direction.
+
+The system must not rely solely on negative numbers to determine business meaning.
+
+Movement type is authoritative.
+
+## 5. Receipt
+
+Receipt increases physical stock.
+
+Flow:
+
+Goods Receipt
+→ Inventory Movement RECEIPT
+→ Inventory Balance increases
+→ Inventory Ledger entry
+
+Receipt may subsequently trigger:
+
+Putaway
+→ Warehouse
+→ Bin
+
+## 6. Issue
+
+Issue decreases physical stock.
+
+Flow:
+
+Reservation
+→ Pick
+→ Pack
+→ Issue
+→ Inventory Balance decreases
+→ Inventory Ledger entry
+
+Issue must validate:
+
+- sufficient on-hand quantity
+- sufficient reserved quantity when consuming reservation
+- valid warehouse/location
+- valid batch where applicable
+- valid serial where applicable
+
+## 7. Reservation
+
+Reservation does not change physical on-hand quantity.
+
+Reservation changes:
+
+reservedQty ↑
+availableQty ↓
+
+The movement must record the reservation reference.
+
+## 8. Release
+
+Release reverses an existing reservation.
+
+Release changes:
+
+reservedQty ↓
+availableQty ↑
+
+A release must not increase physical on-hand quantity.
+
+## 9. Transfer
+
+Transfer moves stock from one inventory position to another.
+
+Source:
+
+onHandQty ↓
+
+Destination:
+
+onHandQty ↑
+
+A transfer must be atomic.
+
+If either side fails, the complete transfer must roll back.
+
+Transfer must preserve:
+
+- inventory item
+- batch
+- serial
+- source warehouse
+- source bin
+- destination warehouse
+- destination bin
+
+## 10. Adjustment
+
+Adjustment changes physical stock because of an approved stock correction.
+
+Adjustment types:
+
+ADJUSTMENT_IN
+ADJUSTMENT_OUT
+
+Every adjustment must contain a reason and reference.
+
+Manual quantity modification without an InventoryMovement record is prohibited in the final V2 architecture.
+
+## 11. Return
+
+A returned item creates an inbound inventory movement.
+
+Return processing must preserve the original:
+
+- inventory item
+- batch
+- serial
+
+The destination condition may determine whether stock becomes:
+
+- AVAILABLE
+- QUARANTINED
+- REPAIR
+- SCRAP
+
+## 12. Pick
+
+Pick represents physical movement from storage toward dispatch preparation.
+
+Pick does not represent final stock issue.
+
+The physical inventory position and dispatch workflow must remain distinguishable.
+
+## 13. Pack
+
+Pack represents preparation of picked inventory for dispatch.
+
+Pack does not itself represent final ownership/stock issue unless explicitly configured by the business workflow.
+
+## 14. Putaway
+
+Putaway establishes the final warehouse/bin location of received inventory.
+
+Putaway must preserve:
+
+- warehouse
+- bin
+- batch
+- serial
+- quantity
+
+## 15. Scrap
+
+Scrap permanently removes inventory from usable stock.
+
+Scrap must require:
+
+- reason
+- quantity
+- approval where configured
+- reference
+- audit information
+
+Serialized scrap must preserve the serial history.
+
+## 16. Transaction Atomicity
+
+Every movement that changes inventory quantities must execute inside a database transaction.
+
+The transaction must update:
+
+1. InventoryBalance
+2. InventoryMovement
+3. InventoryLedger
+4. Related business document where required
+
+All operations must succeed or all changes must roll back.
+
+## 17. Concurrency
+
+Inventory movements must protect against concurrent stock modification.
+
+The system must prevent:
+
+- double issue
+- double reservation
+- negative available stock
+- negative reserved stock
+- duplicate serial assignment
+- duplicate stock transfer
+
+Database transactions and appropriate locking/concurrency controls must be used.
+
+## 18. Idempotency
+
+Inventory movement APIs must support idempotent processing where external systems or asynchronous jobs may retry the same operation.
+
+A repeated request must not create duplicate inventory movement.
+
+The exact idempotency-key implementation will be defined in the API architecture.
+
+## 19. Reference Tracking
+
+Every movement should identify the originating business transaction.
+
+Examples:
+
+Sales Order
+Purchase Order
+Goods Receipt
+Dispatch Order
+RMA
+Service Ticket
+Stock Adjustment
+Stock Count
+Project
+Production Order
+
+The movement must retain:
+
+referenceModule
+referenceId
+
+## 20. Audit
+
+Every inventory movement must preserve:
+
+- who performed the operation
+- when it occurred
+- what quantity changed
+- which inventory item changed
+- warehouse
+- bin
+- batch
+- serial
+- source document
+- reason
+
+Inventory history must be immutable.
+
+## 21. Ledger Integration
+
+InventoryMovement represents the operational inventory event.
+
+InventoryLedger represents the historical inventory balance/value record.
+
+The relationship is:
+
+Business Transaction
+→ InventoryMovement
+→ InventoryBalance update
+→ InventoryLedger entry
+
+## 22. Legacy Compatibility
+
+Existing InventoryTransaction remains temporarily.
+
+Existing services may continue to use it during migration.
+
+Final V2 architecture will migrate inventory-changing operations to InventoryMovement and InventoryLedger.
+
+Existing direct updates to:
+
+- stockQty
+- reservedQty
+- availableQty
+
+must progressively be removed from business modules.
+
+## 23. Authority Rule
+
+No OperationsOS module should directly modify inventory quantities in the final architecture.
+
+Modules must request inventory operations through the Inventory Engine.
+
+Examples:
+
+GoodsReceipt
+→ Inventory Engine RECEIVE
+
+Dispatch
+→ Inventory Engine ISSUE
+
+RMA
+→ Inventory Engine RETURN
+
+Stock Count
+→ Inventory Engine ADJUSTMENT
+
+Warehouse Transfer
+→ Inventory Engine TRANSFER
+
+## 24. Movement Lifecycle
+
+The general lifecycle is:
+
+Business Request
+→ Validation
+→ Authorization
+→ Inventory Movement
+→ Inventory Balance Update
+→ Inventory Ledger
+→ Audit
+→ Business Document Update
+
+## 25. Future Extensions
+
+InventoryMovement will integrate with:
+
+- InventoryBalance
+- InventoryLedger
+- CostLayer
+- Warehouse
+- WarehouseBin
+- InventoryBatch
+- InventorySerial
+- InventoryReservation
+- StockCount
+- StockAdjustment
+- Procurement
+- Sales
+- Dispatch
+- Service
+- RMA
+- Production
+- ProjectOS
