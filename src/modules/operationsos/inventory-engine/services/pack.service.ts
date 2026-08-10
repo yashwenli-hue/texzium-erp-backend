@@ -1,46 +1,189 @@
-import { Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../../../../core/database/prisma.service';
 import { PackInventoryDto } from '../dto/pack-inventory.dto';
+import { MovementService } from './movement.service';
 
 @Injectable()
 export class PackService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly movementService: MovementService,
+  ) {}
 
   async execute(data: PackInventoryDto) {
     return this.prisma.$transaction(async (tx) => {
+      if (data.quantity <= 0) {
+        throw new BadRequestException(
+          'Pack quantity must be greater than zero.',
+        );
+      }
 
-      const dispatchItem = await tx.dispatchOrderItem.findUnique({
-        where: {
-          id: data.dispatchOrderItemId,
-        },
-      });
+      const dispatchItem =
+        await tx.dispatchOrderItem.findUnique({
+          where: {
+            id: data.dispatchOrderItemId,
+          },
+        });
 
       if (!dispatchItem) {
-        throw new Error('Dispatch Item not found');
+        throw new NotFoundException(
+          'Dispatch Order Item not found.',
+        );
+      }
+
+      if (!dispatchItem.inventoryItemId) {
+        throw new BadRequestException(
+          'Dispatch Order Item is not linked to an Inventory Item.',
+        );
       }
 
       if (!dispatchItem.isPicked) {
-        throw new Error('Item has not been picked');
+        throw new BadRequestException(
+          'Inventory has not been picked.',
+        );
       }
 
       if (data.quantity > dispatchItem.pickedQty) {
-        throw new Error('Packed quantity exceeds picked quantity');
+        throw new BadRequestException(
+          'Packed quantity exceeds picked quantity.',
+        );
       }
 
-      const updatedItem = await tx.dispatchOrderItem.update({
-        where: {
-          id: dispatchItem.id,
-        },
-        data: {
-          packedQty: dispatchItem.packedQty + data.quantity,
-          isPacked: true,
-        },
-      });
+      if (!dispatchItem.warehouseId) {
+        throw new BadRequestException(
+          'Dispatch Order Item does not have a warehouse assigned.',
+        );
+      }
+
+      let warehouseBinId: string | null = null;
+
+      if (dispatchItem.binLocation) {
+        const bin = await tx.warehouseBin.findFirst({
+          where: {
+            code: dispatchItem.binLocation,
+            warehouseRack: {
+              warehouseZone: {
+                warehouseId: dispatchItem.warehouseId,
+              },
+            },
+          },
+        });
+
+        if (!bin) {
+          throw new NotFoundException(
+            'Warehouse bin not found for the Dispatch Order Item.',
+          );
+        }
+
+        warehouseBinId = bin.id;
+      }
+
+      const balance =
+        await tx.inventoryBalance.findFirst({
+          where: {
+            inventoryItemId:
+              dispatchItem.inventoryItemId,
+
+            warehouseId:
+              dispatchItem.warehouseId,
+
+            warehouseBinId,
+          },
+        });
+
+      if (!balance) {
+        throw new NotFoundException(
+          'Inventory balance not found for the selected warehouse and bin.',
+        );
+      }
+
+      const remainingPickedQty =
+        dispatchItem.pickedQty -
+        data.quantity;
+
+      const updatedPackedQty =
+        dispatchItem.packedQty +
+        data.quantity;
+
+      const updatedDispatchItem =
+        await tx.dispatchOrderItem.update({
+          where: {
+            id: dispatchItem.id,
+          },
+          data: {
+            pickedQty:
+              remainingPickedQty,
+
+            packedQty:
+              updatedPackedQty,
+
+            isPicked:
+              remainingPickedQty > 0,
+
+            isPacked:
+              updatedPackedQty > 0,
+
+            remarks:
+              data.remarks ??
+              dispatchItem.remarks,
+          },
+        });
+
+      const movement =
+        await this.movementService.create(
+          {
+            inventoryItemId:
+              dispatchItem.inventoryItemId,
+
+            warehouseId:
+              dispatchItem.warehouseId,
+
+            batchId:
+              balance.batchId ??
+              undefined,
+
+            serialId:
+              balance.serialId ??
+              undefined,
+
+            movementType:
+              'PACK',
+
+            movementStatus:
+              'POSTED',
+
+            quantity:
+              data.quantity,
+
+            referenceModule:
+              'DispatchOrder',
+
+            referenceId:
+              dispatchItem.dispatchOrderId,
+
+            remarks:
+              data.remarks,
+
+            createdBy:
+              data.packedBy,
+          },
+          tx,
+        );
 
       return {
         success: true,
-        message: 'Inventory packed successfully.',
-        dispatchItem: updatedItem,
+
+        message:
+          'Inventory packed successfully.',
+
+        dispatchItem:
+          updatedDispatchItem,
+
+        movement,
       };
     });
   }
