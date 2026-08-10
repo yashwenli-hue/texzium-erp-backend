@@ -7,7 +7,10 @@ import { PackInventoryDto } from './dto/pack-inventory.dto';
 import { IssueInventoryDto } from './dto/issue-inventory.dto';
 
 import { ReserveService } from './services/reserve.service';
+
 import { PickService } from './services/pick.service';
+import { ReleaseService } from './services/release.service';
+import { ReleaseInventoryDto } from './dto/release-inventory.dto';
 
 @Injectable()
 export class InventoryEngineService {
@@ -16,6 +19,7 @@ export class InventoryEngineService {
   private readonly pickService: PickService,
   private readonly packService: PackService,
   private readonly prisma: PrismaService,
+  private readonly releaseService: ReleaseService,
 ) {}  
 
 
@@ -40,4 +44,8 @@ export class InventoryEngineService {
       throw new Error('Replace with existing Issue logic temporarily.');
     });
   }
+  async releaseStock(data: ReleaseInventoryDto) {
+  return this.releaseService.execute(data);
+}
+
 }

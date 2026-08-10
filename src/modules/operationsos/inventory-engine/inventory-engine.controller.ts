@@ -4,6 +4,7 @@ import { ReserveInventoryDto } from './dto/reserve-inventory.dto';
 import { PickInventoryDto } from './dto/pick-inventory.dto';
 import { PackInventoryDto } from './dto/pack-inventory.dto';
 import { IssueInventoryDto } from './dto/issue-inventory.dto';
+import { ReleaseInventoryDto } from './dto/release-inventory.dto';
 
 @Controller('inventory-engine')
 export class InventoryEngineController {
@@ -30,5 +31,10 @@ export class InventoryEngineController {
   issue(@Body() body: IssueInventoryDto) {
     return this.inventoryEngineService.issueStock(body);
   }
+
+  @Post('release')
+release(@Body() body: ReleaseInventoryDto) {
+  return this.inventoryEngineService.releaseStock(body);
+}
 
 }
