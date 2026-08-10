@@ -1288,3 +1288,397 @@ Actions include:
 - RELEASED
 - EXPIRED
 - CANCELLED
+
+# 8. Pick, Pack & Dispatch Integration
+
+## 8.1 Purpose
+
+Pick, Pack, and Dispatch are warehouse execution processes that consume
+or execute inventory reservations.
+
+The Inventory Engine must remain responsible for inventory quantities,
+reservations, and physical inventory movements.
+
+DispatchOS remains responsible for the Dispatch Order workflow.
+
+## 8.2 Dispatch Workflow
+
+The standard dispatch workflow is:
+
+Sales Order
+    ↓
+Dispatch Order
+    ↓
+Dispatch Order Item
+    ↓
+Reservation
+    ↓
+Pick
+    ↓
+Pack
+    ↓
+Issue
+    ↓
+Dispatch
+    ↓
+Ready for Invoicing
+
+The exact workflow may be configured through the ERP approval and
+workflow engines.
+
+## 8.3 Reserve
+
+Reserve creates the inventory commitment.
+
+Reserve:
+
+- Does not reduce On Hand
+- Increases Reserved
+- Decreases Available
+- Creates or updates Inventory Reservation
+- Updates Dispatch Order Item reservation state where applicable
+
+DispatchOS must not directly manipulate inventory balance quantities.
+
+## 8.4 Pick
+
+Pick represents the physical warehouse execution of a reservation.
+
+Pick validation must verify:
+
+1. Dispatch Order Item exists.
+2. Reservation exists when reservation is required.
+3. Requested quantity is positive.
+4. Requested quantity does not exceed the remaining reservable/pickable
+   quantity.
+5. Required warehouse and location information exists.
+6. Batch/serial requirements are satisfied where applicable.
+
+Pick normally changes warehouse execution state rather than reducing
+the final On Hand inventory quantity.
+
+The exact physical-location movement associated with picking will be
+defined by the warehouse configuration.
+
+## 8.5 Pick Quantity
+
+A Dispatch Order Item must support:
+
+- Ordered Quantity
+- Reserved Quantity
+- Picked Quantity
+- Packed Quantity
+- Dispatched Quantity
+
+The Inventory Engine must prevent:
+
+Picked Quantity > Reserved Quantity
+
+when reservation is mandatory.
+
+Partial picking must be supported.
+
+Example:
+
+Ordered:
+100
+
+Reserved:
+100
+
+Picked:
+60
+
+Remaining to Pick:
+40
+
+## 8.6 Pack
+
+Pack represents the physical packing of picked inventory.
+
+Pack validation must verify:
+
+1. Dispatch Order Item exists.
+2. Required quantity has been picked.
+3. Packed quantity does not exceed picked quantity.
+4. Batch/serial traceability remains intact.
+5. Packing state is valid.
+
+Packing normally does not reduce final On Hand inventory.
+
+## 8.7 Packed Quantity
+
+A Dispatch Order Item must maintain:
+
+Ordered Quantity
+Reserved Quantity
+Picked Quantity
+Packed Quantity
+Dispatched Quantity
+
+The following relationship must normally hold:
+
+Dispatched Quantity <= Packed Quantity
+Packed Quantity <= Picked Quantity
+Picked Quantity <= Reserved Quantity
+
+The workflow may permit controlled exceptions only when explicitly
+configured.
+
+## 8.8 Issue
+
+Issue represents the physical inventory movement out of available
+inventory.
+
+At Issue:
+
+On Hand decreases.
+
+Reserved quantity is consumed where the issue consumes a reservation.
+
+Available quantity is recalculated.
+
+An Inventory Ledger transaction is created.
+
+Issue must occur inside the same database transaction as the affected
+inventory balance changes.
+
+## 8.9 Dispatch
+
+Dispatch represents the completion of the shipment workflow.
+
+Dispatch validation must verify:
+
+1. Dispatch Order exists.
+2. Dispatch Order is in a valid pre-dispatch status.
+3. Required items are packed.
+4. Required inventory issue has completed.
+5. Required quantities are dispatched.
+6. Required serial/batch traceability is complete.
+7. Required logistics information is present.
+
+Dispatch completion updates the Dispatch Order status.
+
+## 8.10 Dispatch and Inventory Separation
+
+DispatchOS owns:
+
+- Dispatch Order
+- Dispatch Order Items
+- Packing workflow
+- Logistics workflow
+- Gate Out
+- Dispatch status
+- Shipment information
+
+Inventory Engine owns:
+
+- Inventory Balance
+- Reservation
+- Inventory Movement
+- Inventory Ledger
+- Warehouse Location
+- Batch
+- Serial
+
+Neither module should duplicate the other's core responsibilities.
+
+## 8.11 Existing DispatchOrderItem Compatibility
+
+The existing DispatchOrderItem contains:
+
+- inventoryItemId
+- quantity
+- reservedQty
+- pickedQty
+- packedQty
+- dispatchedQty
+- warehouseId
+- binLocation
+- serialNumber
+- batchNumber
+- isReserved
+- isPicked
+- isPacked
+- isDispatched
+
+These fields should be retained during the migration unless a later
+architecture decision establishes a stronger normalized representation.
+
+DispatchOrderItem remains the workflow-level record.
+
+Inventory Balance and Inventory Reservation remain the inventory-level
+records.
+
+## 8.12 Dispatch Reservation Mapping
+
+The relationship should logically be:
+
+DispatchOrderItem
+        │
+        └── Inventory Reservation
+
+The reservation must identify the inventory requirement associated with
+the Dispatch Order Item.
+
+A Dispatch Order Item may require multiple reservation records when:
+
+- Multiple batches are used
+- Multiple warehouses are used
+- Multiple bins are used
+- Multiple serial numbers are used
+
+## 8.13 Batch Allocation During Picking
+
+When batch-controlled inventory is used, picking must identify the
+actual batch allocated to the Dispatch Order Item.
+
+Example:
+
+Requested:
+100
+
+Batch A:
+60
+
+Batch B:
+40
+
+The dispatch line may therefore be fulfilled through:
+
+Batch A → 60
+Batch B → 40
+
+The Inventory Engine must preserve this traceability through Issue.
+
+## 8.14 Serial Allocation During Picking
+
+For serialized inventory, every physical unit must be individually
+identified.
+
+Example:
+
+Requested:
+3
+
+Serials:
+
+SN001
+SN002
+SN003
+
+The Inventory Engine must prevent:
+
+- Duplicate serial allocation
+- Issuing an unavailable serial
+- Issuing the same serial twice
+- Issuing a serial belonging to another inventory location
+
+## 8.15 Partial Dispatch
+
+The system must support partial dispatch when permitted by the
+Dispatch Order workflow.
+
+Example:
+
+Ordered:
+100
+
+Reserved:
+100
+
+Picked:
+60
+
+Packed:
+60
+
+Dispatched:
+60
+
+Remaining:
+40
+
+The Dispatch Order must remain in an appropriate partial status until
+the remaining quantity is completed or explicitly cancelled.
+
+## 8.16 Dispatch Failure
+
+If inventory Issue fails:
+
+- Inventory quantities must not change.
+- Reservation must not be incorrectly consumed.
+- Ledger entries must not be created.
+- Dispatch must not be marked completed.
+
+The complete Issue transaction must roll back.
+
+## 8.17 Dispatch Idempotency
+
+Repeated dispatch requests must not issue the same inventory twice.
+
+The Inventory Engine must detect whether the required inventory issue
+has already been completed for the business reference.
+
+## 8.18 Sales Order Integration
+
+After successful dispatch completion, DispatchOS may update the Sales
+Order according to the configured sales workflow.
+
+For the existing implementation, the intended transition is:
+
+DISPATCHED
+    ↓
+Sales Order READY_FOR_INVOICING
+
+The final Sales Order workflow will be governed by RevenueOS.
+
+## 8.19 Invoice Independence
+
+Inventory dispatch and invoicing must remain separate business events.
+
+A successful inventory issue must not automatically create an invoice
+unless RevenueOS explicitly requests that behavior.
+
+Similarly, invoice creation must not silently alter physical inventory.
+
+## 8.20 Audit Trail
+
+Pick, Pack, Issue, and Dispatch actions must be auditable.
+
+The audit information should include:
+
+- User
+- Timestamp
+- Dispatch Order
+- Dispatch Order Item
+- Inventory Item
+- Warehouse
+- Location
+- Quantity
+- Batch
+- Serial
+- Action
+- Reference
+- Remarks
+
+## 8.21 Module Boundary
+
+The final integration boundary is:
+
+DispatchOS
+    ↓
+Inventory Engine API
+
+DispatchOS requests:
+
+- Reserve
+- Pick
+- Pack
+- Issue
+
+Inventory Engine performs inventory-specific validation and state
+changes.
+
+DispatchOS must not directly update InventoryItem stock quantities.
+
