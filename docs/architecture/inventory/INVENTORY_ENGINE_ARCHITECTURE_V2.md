@@ -367,3 +367,184 @@ Inventory Ledger:
 "How did we arrive at this balance?"
 
 The Inventory Engine must maintain both consistently.
+
+# 5. Warehouse & Location Architecture
+
+## 5.1 Warehouse
+
+Warehouse represents a physical or logical facility in which inventory
+is stored, received, processed, transferred, or dispatched.
+
+Each warehouse must have a unique identifier.
+
+Warehouse information must be maintained through a dedicated master
+entity rather than free-form warehouse text.
+
+A warehouse may contain one or more inventory locations.
+
+## 5.2 Warehouse Location
+
+Warehouse Location represents a physical storage position within a
+warehouse.
+
+The location hierarchy must support:
+
+Warehouse
+→ Zone
+→ Rack
+→ Shelf
+→ Bin
+
+The hierarchy must be flexible.
+
+A warehouse may use only the levels required by its physical layout.
+
+Examples:
+
+Small Warehouse:
+Warehouse → Bin
+
+Medium Warehouse:
+Warehouse → Zone → Bin
+
+Large Warehouse:
+Warehouse → Zone → Rack → Shelf → Bin
+
+## 5.3 Location Identity
+
+Every inventory location must have a unique identifier within its
+warehouse.
+
+A location should support:
+
+- Location Code
+- Location Name
+- Parent Location
+- Location Type
+- Warehouse
+- Active / Inactive status
+- Capacity information where required
+
+## 5.4 Location Types
+
+The Inventory Engine should support location types including:
+
+- WAREHOUSE
+- ZONE
+- RACK
+- SHELF
+- BIN
+- RECEIVING
+- QC_HOLD
+- STAGING
+- DISPATCH
+- RETURN
+- SCRAP
+
+Additional location types may be introduced without changing the core
+inventory movement architecture.
+
+## 5.5 Inventory Location Rules
+
+Inventory must always know its physical location when location tracking
+is enabled for the warehouse.
+
+Inventory movements between locations must be represented as inventory
+movements.
+
+A transfer must never modify one location balance without creating the
+corresponding movement into the destination location.
+
+## 5.6 Receiving Location
+
+Receiving locations represent temporary or designated locations where
+goods are placed immediately after receipt.
+
+Received inventory may remain in a receiving location until:
+
+- Quality inspection is completed
+- Putaway is completed
+- Inventory is released for normal use
+
+## 5.7 Quality Hold Location
+
+QC Hold locations are used for inventory that cannot yet be released
+for normal allocation.
+
+Inventory in QC Hold must not be treated as normally available stock.
+
+## 5.8 Staging Location
+
+Staging locations are temporary operational locations used during
+warehouse execution.
+
+Examples:
+
+- Picking staging
+- Packing staging
+- Dispatch staging
+- Transfer staging
+
+Staging stock must remain traceable to its originating inventory
+balance and movement.
+
+## 5.9 Return Location
+
+Return locations are used for inventory received through customer
+returns, RMA processes, or service returns.
+
+Returned inventory must not automatically become available stock.
+
+It may require inspection or approval before release.
+
+## 5.10 Scrap Location
+
+Scrap locations represent inventory that has been identified as
+scrapped or permanently unusable.
+
+Scrapped inventory must be removed from normal available stock through
+a controlled inventory movement.
+
+## 5.11 Existing TEXZIUM ERP Compatibility
+
+The existing TEXZIUM ERP schema contains warehouse-related fields in
+multiple entities, including:
+
+- warehouse
+- warehouseId
+- warehouseName
+- zoneName
+- rackNumber
+- binNumber
+- binLocation
+
+Inventory Engine v2 must provide a migration path from these existing
+fields to standardized warehouse and location entities.
+
+Existing business entities must not be broken during migration.
+
+## 5.12 Warehouse Transfer
+
+A warehouse transfer consists of two logically connected movements:
+
+1. Source location movement
+2. Destination location movement
+
+The transfer must be atomic.
+
+If the destination movement fails, the source movement must also be
+rolled back.
+
+## 5.13 Location Availability
+
+The Inventory Engine must be able to determine stock availability by:
+
+- Inventory Item
+- Warehouse
+- Location
+- Batch / Lot
+- Serial Number
+- Inventory Status
+
+This information will support reservation, picking, transfer,
+reconciliation, and reporting.
