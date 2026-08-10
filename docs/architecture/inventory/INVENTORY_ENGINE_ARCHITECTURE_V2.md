@@ -4111,3 +4111,660 @@ Documentation should include:
 - Examples
 - Transaction Behavior
 - Idempotency Behavior
+
+# 14. Inventory Engine Integration Architecture
+
+## 14.1 Integration Principle
+
+Inventory Engine is the central operational authority for inventory
+quantity, inventory movement, reservation, warehouse stock, batch
+tracking, serial tracking, inventory ledger, and inventory valuation
+data.
+
+Other modules must not directly modify Inventory Engine database records.
+
+All inventory-changing operations must pass through Inventory Engine
+services or approved integration interfaces.
+
+## 14.2 ProcurementOS Integration
+
+ProcurementOS is responsible for:
+
+- Purchase Requisition
+- Purchase Order
+- Supplier workflow
+- Procurement approvals
+
+Inventory Engine is responsible for:
+
+- Receipt of physical inventory
+- Inventory quantity
+- Warehouse assignment
+- Batch tracking
+- Serial tracking
+- Inventory valuation
+- Inventory ledger
+
+Typical flow:
+
+Purchase Order
+    ↓
+Goods Receipt
+    ↓
+Inventory Engine Receive
+    ↓
+Inventory Balance
+    ↓
+Inventory Ledger
+
+ProcurementOS must not directly update inventory quantity.
+
+## 14.3 RevenueOS Integration
+
+RevenueOS is responsible for:
+
+- Customer
+- Sales Order
+- Commercial pricing
+- Sales workflow
+
+Inventory Engine is responsible for:
+
+- Reservation
+- Picking
+- Packing
+- Issue
+- Inventory reduction
+- Inventory traceability
+
+Typical flow:
+
+Sales Order
+    ↓
+Inventory Reservation
+    ↓
+Pick
+    ↓
+Pack
+    ↓
+Dispatch
+    ↓
+Inventory Issue
+    ↓
+Inventory Ledger
+
+## 14.4 Dispatch Integration
+
+Dispatch is an important Inventory Engine consumer.
+
+Dispatch Order must reference inventory information but should not
+implement independent stock calculation logic.
+
+Typical flow:
+
+Dispatch Order
+    ↓
+Dispatch Order Item
+    ↓
+Inventory Reservation
+    ↓
+Inventory Pick
+    ↓
+Inventory Pack
+    ↓
+Inventory Issue
+    ↓
+DISPATCHED
+
+Dispatch completion must preserve:
+
+- Inventory Item
+- Quantity
+- Warehouse
+- Location
+- Batch
+- Serial
+- Inventory Movement
+- Ledger Reference
+
+## 14.5 ProductionOS Integration
+
+ProductionOS is responsible for manufacturing workflow.
+
+Inventory Engine provides:
+
+### Material Issue
+
+Production consumes raw or semi-finished material through Inventory
+Engine.
+
+Example:
+
+Production Order
+    ↓
+Material Requirement
+    ↓
+Inventory Reservation
+    ↓
+Material Pick
+    ↓
+Material Issue
+    ↓
+Production
+
+### Finished Goods Receipt
+
+Production completion may generate:
+
+Production Output
+    ↓
+Inventory Receive
+    ↓
+Finished Goods Stock
+
+Inventory Engine must not own production planning or manufacturing
+logic.
+
+## 14.6 Warehouse Integration
+
+Warehouse functionality may include:
+
+- Receiving
+- Putaway
+- Picking
+- Packing
+- Transfers
+- Location management
+
+Inventory Engine owns the authoritative inventory state.
+
+Warehouse workflows call Inventory Engine for inventory-changing
+operations.
+
+The relationship is:
+
+Warehouse Workflow
+        ↓
+Inventory Engine
+        ↓
+Inventory Balance + Ledger
+
+## 14.7 ProjectOS Integration
+
+ProjectOS may consume inventory for project execution.
+
+Example:
+
+Project
+    ↓
+Material Requirement
+    ↓
+Inventory Reservation
+    ↓
+Inventory Issue
+    ↓
+Project Cost
+
+Inventory Engine records the physical inventory movement.
+
+ProjectOS records project consumption and project costing relationships.
+
+## 14.8 ServiceOS Integration
+
+ServiceOS may consume spare parts during service activities.
+
+Example:
+
+Service Ticket
+    ↓
+Spare Requirement
+    ↓
+Inventory Reservation
+    ↓
+Spare Issue
+    ↓
+Inventory Ledger
+    ↓
+Service Cost
+
+Inventory Engine owns the inventory movement.
+
+ServiceOS owns service workflow.
+
+## 14.9 RMAOS Integration
+
+RMAOS manages return authorization and return workflow.
+
+Inventory Engine manages the physical inventory movement.
+
+Example:
+
+Customer Return
+    ↓
+RMA
+    ↓
+Inventory Receive
+    ↓
+QC
+    ↓
+Available / Quarantine / Scrap
+
+Returned inventory must not automatically become available.
+
+Quality and disposition rules must determine the final inventory status.
+
+## 14.10 AssetOS Integration
+
+AssetOS may create or manage assets associated with serialized
+inventory.
+
+Example:
+
+Serialized Inventory
+    ↓
+Issue
+    ↓
+Installation
+    ↓
+Asset Registration
+
+Inventory Engine maintains:
+
+- Serial identity
+- Inventory history
+- Movement history
+
+AssetOS maintains:
+
+- Asset lifecycle
+- Asset ownership
+- Depreciation relationship
+- Asset-specific information
+
+Inventory Engine must not duplicate AssetOS depreciation logic.
+
+## 14.11 WarrantyOS Integration
+
+Warranty functionality may reference serial numbers.
+
+Example:
+
+Serial Number
+    ↓
+Installation
+    ↓
+Warranty
+    ↓
+Service
+
+Inventory Engine provides serial identity and movement history.
+
+WarrantyOS owns warranty policy and warranty calculation.
+
+## 14.12 DocumentOS Integration
+
+Inventory Engine may reference documents stored by DocumentOS.
+
+Examples:
+
+- Goods Receipt documents
+- Stock Count Sheets
+- Inspection Reports
+- Adjustment approvals
+- Damage evidence
+- Scrap authorization
+- Supplier documents
+
+Inventory Engine should store document references rather than duplicate
+DocumentOS file storage.
+
+DocumentOS remains the document repository.
+
+## 14.13 FinanceOS Integration
+
+Inventory Engine provides operational inventory valuation information
+to FinanceOS.
+
+Typical flow:
+
+Inventory Movement
+    ↓
+Inventory Valuation
+    ↓
+FinanceOS
+    ↓
+Accounting Entry
+    ↓
+General Ledger
+
+FinanceOS owns:
+
+- General Ledger
+- Accounting Entries
+- Financial Periods
+- Financial Reporting
+
+Inventory Engine owns:
+
+- Quantity
+- Movement
+- Operational valuation
+- Cost layers
+
+The accounting boundary must remain explicit.
+
+## 14.14 ComplianceOS Integration
+
+Inventory Engine may provide information required for compliance.
+
+Examples:
+
+- HSN
+- Batch information
+- Serial information
+- Goods movement
+- Tax-related inventory references
+
+ComplianceOS remains responsible for statutory compliance logic.
+
+Inventory Engine must not duplicate GST, E-Invoice, or E-Way Bill
+business logic.
+
+## 14.15 AdminOS Integration
+
+AdminOS provides centralized control for Inventory Engine.
+
+Inventory Engine should consume:
+
+- User permissions
+- Roles
+- Warehouse access
+- Approval rules
+- Numbering configuration
+- Company settings
+- Period controls
+
+Inventory Engine must not create a separate permission engine.
+
+## 14.16 Audit Integration
+
+All significant inventory operations must integrate with the centralized
+Audit Trail.
+
+Examples:
+
+- Reservation
+- Release
+- Pick
+- Pack
+- Issue
+- Receive
+- Transfer
+- Adjustment
+- Stock Count
+- Batch registration
+- Serial registration
+
+Audit information must identify:
+
+- User
+- Timestamp
+- Operation
+- Source Module
+- Reference
+- Inventory Item
+- Quantity
+- Warehouse
+- Location
+
+## 14.17 Approval Integration
+
+Inventory Engine must use the centralized Approval Matrix.
+
+Potential approval-controlled operations:
+
+- Large stock adjustments
+- Scrap
+- Stock count variances
+- High-value adjustments
+- Inventory revaluation
+- Exceptional transfers
+
+Inventory Engine exposes approval hooks.
+
+AdminOS owns approval configuration.
+
+## 14.18 Notification Integration
+
+Inventory Engine may emit notification events for:
+
+- Low stock
+- Reservation failure
+- Stock count variance
+- Approval required
+- Stock adjustment posted
+- Transfer completed
+- Batch expiry
+- Serial exception
+
+Notification delivery remains centralized.
+
+Inventory Engine must not implement its own notification infrastructure.
+
+## 14.19 Event Integration
+
+Inventory Engine may publish domain events after successful transactions.
+
+Examples:
+
+InventoryReserved
+InventoryReleased
+InventoryPicked
+InventoryPacked
+InventoryIssued
+InventoryReceived
+InventoryTransferred
+InventoryAdjusted
+StockCountCompleted
+StockCountPosted
+SerialRegistered
+BatchRegistered
+
+Events must only be published after the underlying database transaction
+has successfully committed.
+
+## 14.20 Event Consumers
+
+Other modules may consume Inventory Engine events.
+
+Example:
+
+InventoryIssued
+    ↓
+RevenueOS
+    → Update Dispatch State
+
+InventoryIssued
+    ↓
+ProjectOS
+    → Update Project Consumption
+
+InventoryIssued
+    ↓
+ServiceOS
+    → Update Spare Consumption
+
+InventoryReceived
+    ↓
+ProcurementOS
+    → Update Receipt Status
+
+InventoryReceived
+    ↓
+FinanceOS
+    → Process Inventory Accounting
+
+InventoryAdjusted
+    ↓
+FinanceOS
+    → Process Adjustment Accounting
+
+## 14.21 Integration Ownership
+
+The following ownership must remain fixed.
+
+| Capability | Owner |
+|---|---|
+| Inventory Quantity | Inventory Engine |
+| Inventory Movement | Inventory Engine |
+| Reservation | Inventory Engine |
+| Warehouse Stock | Inventory Engine |
+| Batch Tracking | Inventory Engine |
+| Serial Tracking | Inventory Engine |
+| Inventory Ledger | Inventory Engine |
+| Inventory Costing | Inventory Engine |
+| Stock Count | Inventory Engine |
+| Inventory Valuation | Inventory Engine |
+| Procurement Workflow | ProcurementOS |
+| Sales Workflow | RevenueOS |
+| Dispatch Workflow | OperationsOS / Dispatch |
+| Production Workflow | ProductionOS |
+| Project Workflow | ProjectOS |
+| Service Workflow | ServiceOS |
+| Asset Lifecycle | AssetOS |
+| Warranty Lifecycle | WarrantyOS |
+| RMA Workflow | RMAOS |
+| Accounting | FinanceOS |
+| Compliance | ComplianceOS |
+| Documents | DocumentOS |
+| Permissions | AdminOS |
+| Approvals | AdminOS |
+| Audit | Central Audit System |
+| Notifications | Central Notification Engine |
+
+## 14.22 Direct Database Access Rule
+
+No external module may directly update:
+
+- Inventory quantity
+- Reserved quantity
+- Available quantity
+- Inventory ledger
+- Cost layers
+- Serial status
+- Batch stock
+- Inventory reservations
+
+External modules must use Inventory Engine interfaces.
+
+Read-only reporting access may be exposed through approved query services
+or APIs.
+
+## 14.23 Transaction Ownership
+
+The module initiating the business workflow does not automatically own
+the inventory transaction.
+
+Inventory Engine owns the inventory transaction.
+
+Example:
+
+Dispatch Order belongs to Dispatch.
+
+But:
+
+Inventory Issue belongs to Inventory Engine.
+
+This separation prevents inventory logic from being duplicated across
+business modules.
+
+## 14.24 Failure Handling
+
+If an inventory operation fails:
+
+- Inventory Balance must remain unchanged.
+- Inventory Ledger must remain unchanged.
+- Reservation state must remain consistent.
+- Cost layers must remain consistent.
+- Serial state must remain consistent.
+- Batch state must remain consistent.
+
+The complete inventory transaction must rollback.
+
+External business workflows must receive a deterministic failure result.
+
+## 14.25 Integration Security
+
+Every cross-module inventory request must identify:
+
+- Authenticated User
+- Source Module
+- Company
+- Reference Document
+- Reference Line where applicable
+
+The Inventory Engine must validate that the caller has permission to
+perform the requested inventory operation.
+
+## 14.26 Integration Idempotency
+
+Cross-module inventory operations must support idempotency.
+
+Example:
+
+RevenueOS sends:
+
+ISSUE
+Reference:
+DISPATCH_ORDER-1001
+Line:
+1
+
+If the request is retried, Inventory Engine must detect that the
+movement has already been successfully posted.
+
+The same physical inventory must never be issued twice because of a
+network retry.
+
+## 14.27 Integration Architecture Rule
+
+Business modules own business workflows.
+
+Inventory Engine owns inventory state.
+
+FinanceOS owns accounting.
+
+AdminOS owns centralized controls.
+
+DocumentOS owns documents.
+
+This separation must be preserved throughout implementation.
+
+## 14.28 Inventory Engine Final Responsibility
+
+Inventory Engine is responsible for answering:
+
+- What inventory do we have?
+- Where is it?
+- How much is available?
+- How much is reserved?
+- Which batch is it from?
+- Which serial is it?
+- What movements occurred?
+- What did the inventory cost?
+- What is the inventory worth?
+- Why did the quantity change?
+- Which document caused the movement?
+
+Inventory Engine is not responsible for answering:
+
+- Which customer should be sold to?
+- Which supplier should be selected?
+- How should production be planned?
+- How should a project be managed?
+- How should an employee perform service?
+- How should an asset be depreciated?
+- How should GST be calculated?
+- How should the General Ledger be maintained?
+
+Those responsibilities belong to their respective TEXZIUM ERP modules.
