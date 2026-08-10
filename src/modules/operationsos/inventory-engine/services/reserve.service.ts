@@ -1,84 +1,196 @@
-import { Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../../../../core/database/prisma.service';
 import { ReserveInventoryDto } from '../dto/reserve-inventory.dto';
+import { MovementService } from './movement.service';
 
 @Injectable()
 export class ReserveService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly movementService: MovementService,
+  ) {}
 
   async execute(data: ReserveInventoryDto) {
     return this.prisma.$transaction(async (tx) => {
-
-      const inventory = await tx.inventoryItem.findUnique({
-        where: {
-          id: data.inventoryItemId,
-        },
-      });
-
-      if (!inventory) {
-        throw new Error('Inventory Item not found');
+      if (data.quantity <= 0) {
+        throw new BadRequestException(
+          'Reservation quantity must be greater than zero.',
+        );
       }
 
-      const dispatchItem = await tx.dispatchOrderItem.findUnique({
-        where: {
-          id: data.dispatchOrderItemId,
-        },
-      });
+      if (!data.warehouseId) {
+        throw new BadRequestException(
+          'Warehouse is required for inventory reservation.',
+        );
+      }
+
+      const dispatchItem =
+        await tx.dispatchOrderItem.findUnique({
+          where: {
+            id: data.dispatchOrderItemId,
+          },
+        });
 
       if (!dispatchItem) {
-        throw new Error('Dispatch Order Item not found');
+        throw new NotFoundException(
+          'Dispatch Order Item not found.',
+        );
       }
 
-      if (inventory.availableQty < data.quantity) {
-        throw new Error('Insufficient available stock');
+      if (
+        dispatchItem.inventoryItemId &&
+        dispatchItem.inventoryItemId !== data.inventoryItemId
+      ) {
+        throw new BadRequestException(
+          'Inventory Item does not match the Dispatch Order Item.',
+        );
       }
 
-      const newReservedQty = inventory.reservedQty + data.quantity;
-      const newAvailableQty = inventory.stockQty - newReservedQty;
+      let warehouseBinId: string | null = null;
 
-      await tx.inventoryItem.update({
-        where: {
-          id: inventory.id,
-        },
-        data: {
-          reservedQty: newReservedQty,
-          availableQty: newAvailableQty,
-        },
-      });
+      if (data.binLocation) {
+        const bin = await tx.warehouseBin.findFirst({
+          where: {
+            code: data.binLocation,
+            warehouseRack: {
+              warehouseZone: {
+                warehouseId: data.warehouseId,
+              },
+            },
+          },
+        });
 
-      const transaction = await tx.inventoryTransaction.create({
-        data: {
-          inventoryItemId: inventory.id,
-          warehouseId: data.warehouseId,
-          binLocation: data.binLocation,
-          transactionType: 'SALES_RESERVATION',
-          referenceModule: 'DispatchOrder',
-          referenceId: dispatchItem.id,
-          quantity: -data.quantity,
-          balanceAfter: newAvailableQty,
-          remarks: data.remarks,
-          createdBy: data.reservedBy,
-        },
-      });
+        if (!bin) {
+          throw new NotFoundException(
+            'Warehouse bin not found.',
+          );
+        }
 
-      await tx.dispatchOrderItem.update({
-        where: {
-          id: dispatchItem.id,
-        },
-        data: {
-          inventoryItemId: inventory.id,
-          reservedQty: dispatchItem.reservedQty + data.quantity,
-          isReserved: true,
-          warehouseId: data.warehouseId,
-          binLocation: data.binLocation,
-        },
-      });
+        warehouseBinId = bin.id;
+      }
+
+      const balance =
+        await tx.inventoryBalance.findFirst({
+          where: {
+            inventoryItemId: data.inventoryItemId,
+            warehouseId: data.warehouseId,
+            warehouseBinId,
+          },
+        });
+
+      if (!balance) {
+        throw new NotFoundException(
+          'Inventory balance not found for the selected warehouse and bin.',
+        );
+      }
+
+      if (
+        balance.quantityAvailable < data.quantity
+      ) {
+        throw new BadRequestException(
+          'Insufficient available inventory.',
+        );
+      }
+
+      const newReservedQty =
+        balance.quantityReserved + data.quantity;
+
+      const newAvailableQty =
+        balance.quantityAvailable - data.quantity;
+
+      const updatedBalance =
+        await tx.inventoryBalance.update({
+          where: {
+            id: balance.id,
+          },
+          data: {
+            quantityReserved: newReservedQty,
+            quantityAvailable: newAvailableQty,
+          },
+        });
+
+      const updatedDispatchItem =
+        await tx.dispatchOrderItem.update({
+          where: {
+            id: dispatchItem.id,
+          },
+          data: {
+            inventoryItemId: data.inventoryItemId,
+
+            reservedQty:
+              dispatchItem.reservedQty +
+              data.quantity,
+
+            isReserved: true,
+
+            warehouseId:
+              data.warehouseId,
+
+            binLocation:
+              data.binLocation,
+
+            remarks:
+              data.remarks ??
+              dispatchItem.remarks,
+          },
+        });
+
+      const movement =
+        await this.movementService.create(
+          {
+            inventoryItemId:
+              data.inventoryItemId,
+
+            warehouseId:
+              data.warehouseId,
+
+            batchId:
+              balance.batchId ?? undefined,
+
+            serialId:
+              balance.serialId ?? undefined,
+
+            movementType:
+              'RESERVATION',
+
+            movementStatus:
+              'POSTED',
+
+            quantity:
+              data.quantity,
+
+            referenceModule:
+              'DispatchOrder',
+
+            referenceId:
+              dispatchItem.dispatchOrderId,
+
+            remarks:
+              data.remarks,
+
+            createdBy:
+              data.reservedBy,
+          },
+          tx,
+        );
 
       return {
         success: true,
-        message: 'Inventory reserved successfully.',
-        inventory,
-        transaction,
+
+        message:
+          'Inventory reserved successfully.',
+
+        balance:
+          updatedBalance,
+
+        dispatchItem:
+          updatedDispatchItem,
+
+        movement,
       };
     });
   }
