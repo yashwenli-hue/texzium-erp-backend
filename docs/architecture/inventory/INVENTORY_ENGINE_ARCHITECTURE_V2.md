@@ -2950,3 +2950,454 @@ The Inventory Ledger must support reports including:
 - Transfer History
 - Adjustment History
 - Scrap History
+
+# 12. Physical Stock Count & Reconciliation
+
+## 12.1 Purpose
+
+Physical Stock Count provides a controlled process for comparing
+physical inventory with the inventory quantities recorded by TEXZIUM ERP.
+
+The process must identify differences, investigate variances, obtain
+required approvals, and create controlled inventory adjustments.
+
+## 12.2 Stock Count Scope
+
+A stock count may be performed for:
+
+- Entire Warehouse
+- Warehouse Zone
+- Specific Location
+- Inventory Item
+- Batch
+- Serial Number
+- Selected Inventory Category
+
+The scope must be explicitly defined before the count begins.
+
+## 12.3 Stock Count Lifecycle
+
+The standard lifecycle is:
+
+DRAFT
+    ↓
+OPEN
+    ↓
+COUNTING
+    ↓
+COUNT_COMPLETED
+    ↓
+VARIANCE_REVIEW
+    ↓
+APPROVAL
+    ↓
+POSTED
+    ↓
+CLOSED
+
+A count may also be:
+
+CANCELLED
+
+after the appropriate validation.
+
+## 12.4 Count Snapshot
+
+When a stock count is opened, the system should capture the system
+quantity applicable to the count scope.
+
+The snapshot may include:
+
+- Inventory Item
+- Warehouse
+- Location
+- Batch
+- Serial
+- System On Hand Quantity
+- System Reserved Quantity
+- System Available Quantity
+- Unit Cost
+- System Inventory Value
+
+The snapshot provides the baseline against which the physical count is
+compared.
+
+## 12.5 Physical Count
+
+The counting process records the actual quantity physically observed.
+
+For non-serialized inventory:
+
+Physical Quantity:
+97
+
+For serialized inventory:
+
+The actual serial numbers present must be recorded.
+
+For batch-controlled inventory:
+
+The actual quantity must be recorded against the appropriate batch.
+
+## 12.6 Count Variance
+
+Variance is calculated as:
+
+Physical Quantity - System Quantity
+
+Example:
+
+System:
+100
+
+Physical:
+97
+
+Variance:
+-3
+
+Positive variance:
+
+Physical Quantity > System Quantity
+
+Negative variance:
+
+Physical Quantity < System Quantity
+
+Zero variance:
+
+Physical Quantity = System Quantity
+
+## 12.7 Reserved Inventory During Count
+
+Reserved inventory must remain visible during stock counting.
+
+The count process must distinguish:
+
+- Physical On Hand
+- Reserved
+- Available
+
+Physical counting must not silently release or consume reservations.
+
+Any reservation impact must be handled through a separate controlled
+workflow.
+
+## 12.8 Count Freeze
+
+Depending on the count scope, the system may temporarily restrict
+inventory movements affecting the counted stock.
+
+Possible controls include:
+
+- Full warehouse movement freeze
+- Location freeze
+- Item freeze
+- Batch freeze
+- Serial freeze
+
+The selected freeze strategy must be configurable.
+
+## 12.9 Concurrent Movements
+
+If inventory moves after the count snapshot but before posting the
+variance, the system must detect the difference.
+
+The system must not blindly overwrite the latest inventory balance with
+the physical count.
+
+The final reconciliation process must account for movements occurring
+between snapshot and posting.
+
+## 12.10 Recount
+
+The system must support recounting when a variance exceeds configured
+thresholds or when an authorized user requests verification.
+
+A recount may be:
+
+- Full recount
+- Partial recount
+- Specific item recount
+- Specific batch recount
+- Specific serial recount
+
+The recount must remain auditable.
+
+## 12.11 Variance Threshold
+
+Companies may configure variance thresholds.
+
+Examples:
+
+Quantity threshold:
+±5 units
+
+Percentage threshold:
+±2%
+
+Value threshold:
+₹10,000
+
+Variances exceeding configured thresholds may require additional
+approval.
+
+## 12.12 Variance Investigation
+
+A variance may require investigation before adjustment.
+
+Investigation information may include:
+
+- Counted By
+- Verified By
+- Reason
+- Warehouse
+- Location
+- Batch
+- Serial
+- Supporting Remarks
+- Supporting Document
+- Photographic Evidence where DocumentOS is integrated
+
+## 12.13 Adjustment
+
+After approval, the variance may be posted as an Inventory Adjustment.
+
+Negative variance:
+
+System:
+100
+
+Physical:
+97
+
+Adjustment:
+-3
+
+Positive variance:
+
+System:
+100
+
+Physical:
+103
+
+Adjustment:
++3
+
+The adjustment must use the Inventory Movement Engine.
+
+The stock count process must never directly modify inventory quantities.
+
+## 12.14 Adjustment Ledger
+
+Every posted variance must create an Inventory Ledger entry.
+
+The ledger reference must identify the originating stock count and
+count line.
+
+Example:
+
+referenceModule:
+INVENTORY_COUNT
+
+referenceId:
+Stock Count ID
+
+## 12.15 Serialized Stock Count
+
+For serialized inventory, reconciliation must compare the expected
+serial list with the physically observed serial list.
+
+The system must identify:
+
+- Missing Serials
+- Unexpected Serials
+- Duplicate Serials
+- Wrong Location
+- Wrong Status
+
+Each discrepancy must be investigated before final posting.
+
+## 12.16 Batch Stock Count
+
+For batch-controlled inventory, reconciliation must preserve batch
+identity.
+
+Example:
+
+System:
+
+Batch A:
+100
+
+Physical:
+
+Batch A:
+90
+
+Batch B:
+10
+
+The system must not treat this simply as:
+
+Total:
+100
+
+The batch-level discrepancy must remain visible.
+
+## 12.17 Location-Level Reconciliation
+
+Stock counts must support reconciliation at location level.
+
+Example:
+
+Warehouse:
+Delhi
+
+Location A:
+System 100
+Physical 97
+Variance -3
+
+Location B:
+System 50
+Physical 53
+Variance +3
+
+The system must preserve both variances.
+
+It must not automatically net them together unless an authorized
+inventory transfer/reconciliation process explicitly does so.
+
+## 12.18 Approval
+
+Inventory adjustments generated from physical counts may require
+approval.
+
+Approval requirements may depend on:
+
+- Quantity variance
+- Monetary variance
+- Item category
+- Warehouse
+- User role
+- Company policy
+
+The Inventory Engine must expose approval hooks rather than embedding
+company-specific approval rules.
+
+## 12.19 Posting
+
+Posting a stock count means:
+
+1. Validate count status.
+2. Validate all required counts.
+3. Validate approvals.
+4. Recalculate current inventory position.
+5. Determine final variance.
+6. Create inventory adjustments.
+7. Create ledger entries.
+8. Update count status.
+9. Record audit information.
+
+All inventory changes must occur transactionally.
+
+## 12.20 Count Cancellation
+
+A count may be cancelled before posting.
+
+Cancellation must:
+
+- Preserve the count history
+- Prevent further posting
+- Preserve recorded physical counts
+- Record cancellation user
+- Record cancellation timestamp
+- Record cancellation reason
+
+Cancellation must not alter inventory balances.
+
+## 12.21 Count Closure
+
+After all required adjustments are posted, the count may be closed.
+
+A closed count must become read-only.
+
+Historical count data must not be deleted.
+
+## 12.22 Audit Trail
+
+Stock count audit information should include:
+
+- Count ID
+- User
+- Timestamp
+- Warehouse
+- Location
+- Inventory Item
+- Batch
+- Serial
+- System Quantity
+- Physical Quantity
+- Variance
+- Reason
+- Approval
+- Adjustment Reference
+- Status
+
+## 12.23 Reporting
+
+The stock count architecture must support:
+
+- Stock Count Summary
+- Stock Count Detail
+- Variance Report
+- Warehouse Variance
+- Location Variance
+- Batch Variance
+- Serial Variance
+- Inventory Adjustment Report
+- Count History
+- Pending Approval Report
+
+## 12.24 Integration with DocumentOS
+
+Where required, stock counts may reference supporting documents through
+DocumentOS.
+
+Examples:
+
+- Count sheets
+- Photographs
+- Investigation reports
+- Approval documents
+- Supporting evidence
+
+DocumentOS remains responsible for document storage and lifecycle.
+
+Inventory Engine remains responsible for inventory reconciliation.
+
+## 12.25 Integration with FinanceOS
+
+Inventory adjustments may create financial inventory valuation impacts.
+
+Inventory Engine must provide the adjustment quantity and valuation
+information required by FinanceOS.
+
+FinanceOS remains responsible for accounting entries and General Ledger
+posting.
+
+## 12.26 Reconciliation Principle
+
+Physical Stock Count must reconcile inventory without destroying the
+historical movement trail.
+
+The final result must always be explainable through:
+
+Stock Count
+→ Variance
+→ Approval
+→ Inventory Adjustment
+→ Inventory Ledger
+
