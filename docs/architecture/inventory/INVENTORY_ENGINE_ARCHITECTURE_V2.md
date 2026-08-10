@@ -548,3 +548,322 @@ The Inventory Engine must be able to determine stock availability by:
 
 This information will support reservation, picking, transfer,
 reconciliation, and reporting.
+
+# 6. Inventory Movement Engine
+
+## 6.1 Purpose
+
+The Inventory Movement Engine is the centralized component responsible
+for all physical and inventory-accounting movements.
+
+No business module may directly modify inventory balance quantities.
+
+Business modules must request inventory movements through the Inventory
+Engine.
+
+## 6.2 Movement Lifecycle
+
+Every inventory movement follows this logical lifecycle:
+
+Business Event
+→ Validate Request
+→ Validate Inventory Balance
+→ Create Movement
+→ Update Inventory Balance
+→ Create Inventory Ledger Entry
+→ Complete Transaction
+
+All balance updates and ledger creation must occur within the same
+database transaction.
+
+If any step fails, the complete transaction must be rolled back.
+
+## 6.3 Movement Types
+
+The initial standard movement types are:
+
+- OPENING_STOCK
+- RECEIVE
+- ISSUE
+- TRANSFER
+- ADJUSTMENT
+- RETURN
+- SCRAP
+
+Additional movement types may be introduced when required by Production,
+Service, Project, RMA, or other ERP modules.
+
+## 6.4 Opening Stock
+
+Opening Stock represents inventory introduced into TEXZIUM ERP during
+initial implementation or controlled opening-balance entry.
+
+Opening Stock must:
+
+- Create an inventory balance
+- Create a ledger entry
+- Record the source/reference
+- Record the user responsible
+- Be auditable
+
+Opening Stock must not be silently inserted directly into inventory
+balance quantities.
+
+## 6.5 Receive
+
+Receive increases physical inventory.
+
+Examples:
+
+- Purchase Receipt
+- Customer Return
+- RMA Return
+- Production Receipt
+- Service Return
+
+Receive operation:
+
+On Hand:
++ Quantity
+
+Reserved:
+No automatic increase
+
+Available:
+Recalculated according to inventory status
+
+A received quantity may initially enter a Receiving or QC Hold location
+and become normally available only after the required workflow is
+completed.
+
+## 6.6 Issue
+
+Issue decreases physical inventory.
+
+Examples:
+
+- Sales Dispatch
+- Production Material Issue
+- Service Spare Issue
+- Project Material Issue
+- Internal Consumption
+
+Issue validation must verify:
+
+1. Inventory Item exists.
+2. Source warehouse/location exists.
+3. Required quantity is available.
+4. Inventory status permits issue.
+5. Batch/serial requirements are satisfied.
+6. Reservation requirements are satisfied when issuing reserved stock.
+
+Issue operation:
+
+On Hand:
+- Quantity
+
+Reserved:
+- Consumed reservation quantity where applicable
+
+Available:
+Recalculated after movement.
+
+## 6.7 Transfer
+
+Transfer moves inventory from one location to another.
+
+A transfer contains:
+
+- Source Warehouse
+- Source Location
+- Destination Warehouse
+- Destination Location
+- Inventory Item
+- Quantity
+- Batch/Lot where applicable
+- Serial Number where applicable
+- Reference
+- User
+
+Transfer must be atomic.
+
+The source reduction and destination increase must occur in the same
+database transaction.
+
+A successful transfer must produce corresponding ledger records for
+the movement.
+
+## 6.8 Adjustment
+
+Adjustment represents a controlled correction to inventory quantity.
+
+Examples:
+
+- Physical count difference
+- Data correction
+- Damage correction
+- Administrative adjustment
+
+Adjustments must require:
+
+- Adjustment reason
+- User
+- Reference
+- Quantity
+- Source/destination state where applicable
+
+Adjustments must be fully auditable.
+
+Negative adjustments must never allow unauthorized negative inventory.
+
+## 6.9 Return
+
+Return represents inventory coming back into controlled inventory from
+another business process.
+
+Examples:
+
+- Customer Return
+- RMA Return
+- Service Return
+- Vendor Return Reversal
+
+Returned inventory must not automatically become normal available stock.
+
+Depending on the business process, returned stock may enter:
+
+- RETURN location
+- QC Hold
+- Inspection
+- Available Stock
+- Scrap
+
+## 6.10 Scrap
+
+Scrap represents inventory permanently removed from normal usable stock.
+
+Scrap must require:
+
+- Quantity
+- Inventory Item
+- Source Location
+- Scrap reason
+- User
+- Reference
+- Approval where required by company policy
+
+Scrap must create a ledger movement.
+
+## 6.11 Movement Direction
+
+Each movement must have an explicit direction.
+
+Inbound movements increase inventory.
+
+Outbound movements decrease inventory.
+
+Transfer movements contain both outbound and inbound effects.
+
+The system must never infer movement direction from arbitrary strings.
+
+## 6.12 Movement Quantity
+
+Movement quantity must:
+
+- Be greater than zero
+- Use the inventory item's defined unit of measure
+- Respect decimal precision appropriate for the item
+- Never be silently rounded
+- Be validated before the transaction begins
+
+## 6.13 Movement Reference
+
+Every movement must identify its business source.
+
+Examples:
+
+Purchase Receipt:
+referenceModule = PROCUREMENT
+
+Sales Dispatch:
+referenceModule = DISPATCH
+
+Production Issue:
+referenceModule = PRODUCTION
+
+Service Issue:
+referenceModule = SERVICE
+
+Project Issue:
+referenceModule = PROJECT
+
+RMA Return:
+referenceModule = RMA
+
+The final reference-module enumeration will be standardized during API
+and database design.
+
+## 6.14 Ledger Rule
+
+Every completed inventory movement must produce an immutable ledger
+record.
+
+The ledger must contain enough information to reconstruct:
+
+- What item moved
+- Where it moved from
+- Where it moved to
+- How much moved
+- Why it moved
+- Which business document caused it
+- Which user performed it
+- When it happened
+
+## 6.15 Balance and Ledger Consistency
+
+Inventory Balance represents the current operational state.
+
+Inventory Ledger represents the historical movement history.
+
+Both must be updated within the same database transaction.
+
+A successful balance update without a ledger entry is invalid.
+
+A successful ledger entry without the corresponding balance update is
+also invalid.
+
+## 6.16 Concurrency Control
+
+Inventory movements must protect against concurrent stock changes.
+
+The implementation must prevent two simultaneous transactions from
+issuing the same available inventory quantity.
+
+The final implementation strategy may use database transactions,
+conditional updates, row-level locking, or another PostgreSQL-safe
+concurrency mechanism.
+
+## 6.17 Idempotency
+
+Inventory movements originating from external systems or retried API
+requests must support idempotency.
+
+A repeated request with the same idempotency/reference key must not
+create duplicate physical inventory movements.
+
+## 6.18 Auditability
+
+Every movement must be traceable to:
+
+- User
+- Timestamp
+- Business Module
+- Business Reference
+- Movement Type
+- Source Location
+- Destination Location
+- Quantity
+- Reason where applicable
+
+Inventory history must remain auditable after the original business
+document is completed.
