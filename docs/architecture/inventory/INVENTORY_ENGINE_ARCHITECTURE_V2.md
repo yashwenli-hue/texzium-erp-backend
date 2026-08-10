@@ -5095,3 +5095,238 @@ InventoryBalance will integrate with:
 - CostLayer
 - StockCount
 - StockAdjustment
+
+# Phase 3 — Batch & Serial Traceability Architecture
+
+## 1. Objective
+
+Inventory Engine V2 must support both batch-controlled and serialized inventory.
+
+Batch and serial traceability must integrate with InventoryItem, InventoryBalance, InventoryMovement, DispatchOrder, Warranty, RMA, Service, and ProductTag.
+
+## 2. Inventory Batch
+
+InventoryBatch represents a traceable batch or lot of an InventoryItem.
+
+Core attributes:
+
+- id
+- inventoryItemId
+- batchNumber
+- manufactureDate
+- expiryDate
+- receivedDate
+- status
+- remarks
+- createdAt
+- updatedAt
+
+Batch number must be unique within the applicable inventory item.
+
+## 3. Batch Lifecycle
+
+A batch may move through lifecycle states such as:
+
+- ACTIVE
+- QUARANTINED
+- BLOCKED
+- EXPIRED
+- CLOSED
+
+The exact transition rules will be defined by Inventory Movement and Quality architecture.
+
+## 4. Inventory Serial
+
+InventorySerial represents one individually traceable physical unit.
+
+Core attributes:
+
+- id
+- inventoryItemId
+- batchId
+- serialNumber
+- status
+- warehouseId
+- binId
+- warrantyStartDate
+- warrantyEndDate
+- createdAt
+- updatedAt
+
+Serial number must be globally unique within the ERP inventory system.
+
+## 5. Serial Lifecycle
+
+A serial may move through states such as:
+
+- AVAILABLE
+- RESERVED
+- PICKED
+- PACKED
+- DISPATCHED
+- INSTALLED
+- IN_SERVICE
+- RETURNED
+- RMA
+- SCRAPPED
+- BLOCKED
+
+The exact lifecycle transitions will be defined by the Inventory Movement and Service/RMA architecture.
+
+## 6. Batch vs Serial
+
+Batch-controlled inventory tracks quantities by batch.
+
+Example:
+
+InventoryItem + Warehouse + Bin + Batch
+
+Serialized inventory tracks individual units.
+
+Example:
+
+InventoryItem + Warehouse + Bin + Batch + Serial
+
+A serialized unit represents one physical unit.
+
+## 7. Inventory Balance Integration
+
+InventoryBalance may reference:
+
+- batchId
+- serialId
+
+Both are nullable.
+
+Non-batch inventory:
+
+batchId = null
+
+Non-serialized inventory:
+
+serialId = null
+
+Batch-controlled inventory:
+
+batchId != null
+
+Serialized inventory:
+
+serialId != null
+
+## 8. Serial Location
+
+A serialized unit must have a current physical location when it is physically held by the company.
+
+The location is represented through:
+
+- warehouseId
+- binId
+
+Location changes must be recorded through InventoryMovement.
+
+## 9. Traceability
+
+Every batch and serial movement must be traceable through the Inventory Engine.
+
+The system must support tracing:
+
+Receipt
+→ Putaway
+→ Storage
+→ Reservation
+→ Pick
+→ Pack
+→ Dispatch
+→ Installation
+→ Service
+→ Return/RMA
+
+## 10. ProductTag Integration
+
+The existing ProductTag model contains:
+
+- serialNumber
+- qrCode
+- tagStatus
+- dispatchStatus
+- warrantyStatus
+
+ProductTag will remain during the V2 migration.
+
+InventorySerial becomes the authoritative inventory serial identity.
+
+ProductTag becomes the operational/product-tag representation associated with the serial unit rather than a second independent serial master.
+
+## 11. Dispatch Integration
+
+DispatchOrderItem currently contains:
+
+- serialNumber
+- batchNumber
+
+These fields remain temporarily for backward compatibility.
+
+V2 dispatch processing will progressively reference:
+
+- inventoryBatchId
+- inventorySerialId
+
+rather than relying on free-text batch and serial values.
+
+## 12. Warranty Integration
+
+Serialized inventory provides the foundation for unit-level warranty tracking.
+
+Warranty records should reference the applicable InventorySerial where unit-level traceability is required.
+
+## 13. RMA Integration
+
+Returned serialized products must preserve the original serial identity.
+
+An RMA must not create a new serial for an existing physical unit.
+
+The existing serial lifecycle must be updated according to the return condition and disposition.
+
+## 14. Rules
+
+1. Serial numbers must be unique.
+2. A serialized unit represents one physical unit.
+3. A serial cannot simultaneously occupy two physical locations.
+4. A dispatched serial cannot remain AVAILABLE.
+5. A blocked or quarantined serial cannot be normally issued.
+6. Batch and serial movements must be auditable.
+7. Serial location changes must create InventoryMovement records.
+8. Batch traceability must be retained after dispatch.
+9. Historical serial identity must never be overwritten.
+10. Legacy serial fields remain temporarily during migration.
+
+## 15. Legacy Compatibility
+
+Existing fields remain temporarily:
+
+- ProductTag.serialNumber
+- DispatchOrderItem.serialNumber
+- DispatchOrderItem.batchNumber
+
+They will not be removed during this phase.
+
+Migration will establish InventorySerial as the authoritative serial identity.
+
+## 16. Future Integration
+
+InventoryBatch and InventorySerial will integrate with:
+
+- InventoryBalance
+- InventoryMovement
+- InventoryLedger
+- InventoryReservation
+- Warehouse
+- WarehouseBin
+- GoodsReceipt
+- QualityInspection
+- DispatchOrder
+- Installation
+- Warranty
+- ServiceTicket
+- RMA
