@@ -4768,3 +4768,140 @@ Inventory Engine is not responsible for answering:
 - How should the General Ledger be maintained?
 
 Those responsibilities belong to their respective TEXZIUM ERP modules.
+
+# Phase 1 — Warehouse & Location Architecture
+
+## 1. Objective
+
+Establish the physical warehouse and storage-location foundation for Inventory Engine V2.
+
+The location hierarchy is:
+
+Warehouse
+→ Warehouse Zone
+→ Warehouse Rack
+→ Warehouse Bin
+
+## 2. Warehouse
+
+Warehouse represents a physical inventory storage facility.
+
+Core attributes:
+
+- id
+- code
+- name
+- description
+- status
+- address
+- createdAt
+- updatedAt
+
+Warehouse code must be unique.
+
+## 3. Warehouse Zone
+
+Warehouse Zone represents a logical section within a warehouse.
+
+Relationship:
+
+Warehouse 1 → N WarehouseZone
+
+Core attributes:
+
+- id
+- warehouseId
+- code
+- name
+- description
+- status
+- createdAt
+- updatedAt
+
+Zone code must be unique within a warehouse.
+
+## 4. Warehouse Rack
+
+Warehouse Rack represents a rack/storage structure within a warehouse zone.
+
+Relationship:
+
+WarehouseZone 1 → N WarehouseRack
+
+Core attributes:
+
+- id
+- zoneId
+- code
+- name
+- description
+- status
+- createdAt
+- updatedAt
+
+Rack code must be unique within a zone.
+
+## 5. Warehouse Bin
+
+Warehouse Bin represents the final physical storage location.
+
+Relationship:
+
+WarehouseRack 1 → N WarehouseBin
+
+Core attributes:
+
+- id
+- rackId
+- code
+- name
+- description
+- status
+- capacity
+- createdAt
+- updatedAt
+
+Bin code must be unique within a rack.
+
+## 6. Location Hierarchy
+
+Warehouse
+└── Zone
+    └── Rack
+        └── Bin
+
+## 7. Legacy Compatibility
+
+Existing inventory location fields remain temporarily:
+
+- InventoryItem.warehouse
+- InventoryTransaction.warehouseId
+- InventoryTransaction.binLocation
+- DispatchOrder.warehouseId
+- DispatchOrderItem.warehouseId
+- DispatchOrderItem.binLocation
+- WarehousePutaway.warehouseName
+- WarehousePutaway.zoneName
+- WarehousePutaway.rackNumber
+- WarehousePutaway.binNumber
+
+These fields will not be removed during Phase 1.
+
+Migration to relational location references will occur in a later compatibility phase.
+
+## 8. Future Inventory Integration
+
+InventoryBalance V2 will reference:
+
+- warehouseId
+- binId
+
+This will allow stock to be tracked by physical location.
+
+Future batch and serial tracking will extend the inventory balance model.
+
+## 9. Design Principle
+
+Warehouse and location masters are foundational infrastructure.
+
+Inventory quantities must not depend on free-text warehouse or bin names in the V2 architecture.
