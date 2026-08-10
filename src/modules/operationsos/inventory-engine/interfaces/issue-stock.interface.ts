@@ -11,6 +11,7 @@ export interface IssueStockInput {
 
   warehouseId?: string;
 
+  dispatchOrderItemId?: string;
+
   createdBy?: string;
 }
-

@@ -216,9 +216,19 @@ export class DispatchOrdersService {
   await this.issueService.issueStock(tx, {
   inventoryItemId: item.inventoryItemId,
   quantity: item.packedQty,
+  warehouseId:
+    item.warehouseId ??
+    dispatchOrder.warehouseId ??
+    undefined,
+  dispatchOrderItemId: item.id,
   referenceModule: 'DISPATCH_ORDER',
   referenceId: dispatchOrder.id,
   remarks: 'Stock issued through Dispatch Order',
+  createdBy:
+    dispatchOrder.checkedBy ??
+    dispatchOrder.loadedBy ??
+    dispatchOrder.preparedBy ??
+    undefined,
 });
 }  
 
