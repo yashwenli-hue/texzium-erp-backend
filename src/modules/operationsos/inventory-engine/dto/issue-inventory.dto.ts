@@ -3,6 +3,8 @@ export class IssueInventoryDto {
 
   dispatchOrderItemId: string;
 
+  warehouseId: string;
+
   quantity: number;
 
   issuedBy?: string;
