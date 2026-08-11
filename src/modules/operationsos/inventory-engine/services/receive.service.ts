@@ -21,16 +21,16 @@ export class ReceiveService {
           id: data.goodsReceiptId,
         },
         include: {
-  purchaseOrder: {
-    include: {
-      purchaseRequisition: {
-        include: {
-          inventoryItem: true,
+          purchaseOrder: {
+            include: {
+              purchaseRequisition: {
+                include: {
+                  inventoryItem: true,
+                },
+              },
+            },
+          },
         },
-      },
-    },
-  },
-},
       });
 
       if (!goodsReceipt) {
@@ -116,42 +116,47 @@ export class ReceiveService {
             inventoryItemId: inventoryItem.id,
             warehouseId: data.warehouseId,
             warehouseBinId: data.warehouseBinId,
-
             batchId: data.batchId,
             serialId: data.serialId,
-
             quantityOnHand: data.quantity,
             quantityReserved: 0,
             quantityAvailable: data.quantity,
             quantityBlocked: 0,
             quantityDamaged: 0,
-
             averageUnitCost: data.unitCost ?? 0,
           },
         });
       }
 
+      const updatedInventoryItem =
+        await tx.inventoryItem.update({
+          where: {
+            id: inventoryItem.id,
+          },
+          data: {
+            stockQty:
+              inventoryItem.stockQty + data.quantity,
+            availableQty:
+              inventoryItem.availableQty + data.quantity,
+          },
+        });
+
       const movement = await this.movementService.create(
         {
           inventoryItemId: inventoryItem.id,
-
           warehouseId: data.warehouseId,
-
           destinationBinId: data.warehouseBinId,
-
           batchId: data.batchId,
           serialId: data.serialId,
-
           movementType: 'RECEIPT',
           movementStatus: 'POSTED',
-
           quantity: data.quantity,
-
           unitCost: data.unitCost,
-
+          totalCost: data.unitCost
+            ? data.unitCost * data.quantity
+            : undefined,
           referenceModule: 'GoodsReceipt',
           referenceId: goodsReceipt.id,
-
           remarks: data.remarks,
           createdBy: data.receivedBy,
         },
@@ -161,6 +166,7 @@ export class ReceiveService {
       return {
         success: true,
         message: 'Inventory received successfully.',
+        inventoryItem: updatedInventoryItem,
         balance,
         movement,
       };
