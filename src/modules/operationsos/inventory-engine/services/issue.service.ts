@@ -37,9 +37,7 @@ export class IssueService {
       );
     }
 
-    const warehouseId = data.warehouseId;
-
-    if (!warehouseId) {
+    if (!data.warehouseId) {
       throw new BadRequestException(
         'Warehouse is required for stock issue.',
       );
@@ -61,12 +59,16 @@ export class IssueService {
 
     if (
       dispatchItem &&
-      dispatchItem.inventoryItemId &&
-      dispatchItem.inventoryItemId !==
-        data.inventoryItemId
+      dispatchItem.inventoryItemId !== data.inventoryItemId
     ) {
       throw new BadRequestException(
         'Dispatch Order Item does not match the Inventory Item.',
+      );
+    }
+
+    if (dispatchItem && !dispatchItem.isPacked) {
+      throw new BadRequestException(
+        'Inventory has not been packed.',
       );
     }
 
@@ -87,7 +89,7 @@ export class IssueService {
           code: dispatchItem.binLocation,
           warehouseRack: {
             warehouseZone: {
-              warehouseId,
+              warehouseId: data.warehouseId,
             },
           },
         },
@@ -102,17 +104,13 @@ export class IssueService {
       warehouseBinId = bin.id;
     }
 
-    const balance =
-      await tx.inventoryBalance.findFirst({
-        where: {
-          inventoryItemId:
-            data.inventoryItemId,
-
-          warehouseId,
-
-          warehouseBinId,
-        },
-      });
+    const balance = await tx.inventoryBalance.findFirst({
+      where: {
+        inventoryItemId: data.inventoryItemId,
+        warehouseId: data.warehouseId,
+        warehouseBinId,
+      },
+    });
 
     if (!balance) {
       throw new NotFoundException(
@@ -120,31 +118,23 @@ export class IssueService {
       );
     }
 
-    if (
-      balance.quantityOnHand <
-      data.quantity
-    ) {
+    if (balance.quantityOnHand < data.quantity) {
       throw new BadRequestException(
         `Insufficient stock for ${inventory.productName}.`,
       );
     }
 
-    if (
-      balance.quantityReserved <
-      data.quantity
-    ) {
+    const updatedOnHand =
+      balance.quantityOnHand - data.quantity;
+
+    const updatedAvailable =
+      balance.quantityAvailable - data.quantity;
+
+    if (updatedAvailable < 0) {
       throw new BadRequestException(
-        `Reserved quantity is less than issue quantity for ${inventory.productName}.`,
+        `Insufficient available stock for ${inventory.productName}.`,
       );
     }
-
-    const updatedOnHand =
-      balance.quantityOnHand -
-      data.quantity;
-
-    const updatedReserved =
-      balance.quantityReserved -
-      data.quantity;
 
     const updatedBalance =
       await tx.inventoryBalance.update({
@@ -152,129 +142,109 @@ export class IssueService {
           id: balance.id,
         },
         data: {
-          quantityOnHand:
-            updatedOnHand,
-
-          quantityReserved:
-            updatedReserved,
-
-          quantityAvailable:
-            balance.quantityAvailable,
-
+          quantityOnHand: updatedOnHand,
+          quantityAvailable: updatedAvailable,
           updatedAt: new Date(),
         },
       });
 
-    const updatedDispatchItem =
-      dispatchItem
-        ? await tx.dispatchOrderItem.update({
-            where: {
-              id: dispatchItem.id,
-            },
-            data: {
-              dispatchedQty:
-                dispatchItem.dispatchedQty +
-                data.quantity,
+    let updatedDispatchItem: Awaited<ReturnType<typeof tx.dispatchOrderItem.update>> | null = null;
 
-              isDispatched: true,
+    if (dispatchItem) {
+      const remainingPackedQty =
+        dispatchItem.packedQty - data.quantity;
 
-              remarks:
-                data.remarks ??
-                dispatchItem.remarks,
-            },
-          })
-        : null;
+      const updatedDispatchedQty =
+        dispatchItem.dispatchedQty + data.quantity;
+
+      updatedDispatchItem =
+        await tx.dispatchOrderItem.update({
+          where: {
+            id: dispatchItem.id,
+          },
+          data: {
+            packedQty: remainingPackedQty,
+            dispatchedQty: updatedDispatchedQty,
+            isPacked: remainingPackedQty > 0,
+            isDispatched: updatedDispatchedQty > 0,
+            remarks:
+              data.remarks ?? dispatchItem.remarks,
+          },
+        });
+    }
+
+    const updatedStockQty =
+      inventory.stockQty - data.quantity;
+
+    const updatedAvailableQty =
+      inventory.availableQty - data.quantity;
+
+    if (updatedStockQty < 0 || updatedAvailableQty < 0) {
+      throw new BadRequestException(
+        `Insufficient aggregate inventory for ${inventory.productName}.`,
+      );
+    }
+
+    const updatedInventory =
+      await tx.inventoryItem.update({
+        where: {
+          id: inventory.id,
+        },
+        data: {
+          stockQty: updatedStockQty,
+          availableQty: updatedAvailableQty,
+          updatedAt: new Date(),
+        },
+      });
 
     const transaction =
       await tx.inventoryTransaction.create({
         data: {
-          inventoryItemId:
-            data.inventoryItemId,
-
-          warehouseId,
-
-          transactionType:
-            'ISSUE',
-
-          referenceModule:
-            data.referenceModule,
-
-          referenceId:
-            data.referenceId,
-
-          quantity:
-            -data.quantity,
-
-          balanceAfter:
-            updatedOnHand,
-
-          remarks:
-            data.remarks,
-
-          createdBy:
-            data.createdBy,
+          inventoryItemId: data.inventoryItemId,
+          warehouseId: data.warehouseId,
+          transactionType: 'ISSUE',
+          referenceModule: data.referenceModule,
+          referenceId: data.referenceId,
+          quantity: -data.quantity,
+          balanceAfter: updatedOnHand,
+          remarks: data.remarks,
+          createdBy: data.createdBy,
         },
       });
 
     const movement =
       await this.movementService.create(
         {
-          inventoryItemId:
-            data.inventoryItemId,
-
-          warehouseId,
-
+          inventoryItemId: data.inventoryItemId,
+          warehouseId: data.warehouseId,
           sourceBinId:
-            warehouseBinId ??
-            undefined,
-
-          movementType:
-            'ISSUE',
-
-          movementStatus:
-            'POSTED',
-
-          quantity:
-            data.quantity,
-
-          unitCost:
-            balance.averageUnitCost,
-
+            warehouseBinId ?? undefined,
+          batchId:
+            balance.batchId ?? undefined,
+          serialId:
+            balance.serialId ?? undefined,
+          movementType: 'ISSUE',
+          movementStatus: 'POSTED',
+          quantity: data.quantity,
+          unitCost: balance.averageUnitCost,
           totalCost:
             balance.averageUnitCost *
             data.quantity,
-
-          referenceModule:
-            data.referenceModule,
-
-          referenceId:
-            data.referenceId,
-
-          remarks:
-            data.remarks,
-
-          createdBy:
-            data.createdBy,
+          referenceModule: data.referenceModule,
+          referenceId: data.referenceId,
+          remarks: data.remarks,
+          createdBy: data.createdBy,
         },
         tx,
       );
 
     return {
       success: true,
-
-      message:
-        'Inventory issued successfully.',
-
-      inventoryItem: inventory,
-
-      balance:
-        updatedBalance,
-
-      dispatchItem:
-        updatedDispatchItem,
-
+      message: 'Inventory issued successfully.',
+      inventoryItem: updatedInventory,
+      balance: updatedBalance,
+      dispatchItem: updatedDispatchItem,
       transaction,
-
       movement,
     };
   }
