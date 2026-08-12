@@ -38,7 +38,9 @@ export class TransferService {
       });
 
       if (!inventoryItem) {
-        throw new NotFoundException('Inventory Item not found.');
+        throw new NotFoundException(
+          'Inventory Item not found.',
+        );
       }
 
       const sourceWarehouse = await tx.warehouse.findUnique({
@@ -48,14 +50,17 @@ export class TransferService {
       });
 
       if (!sourceWarehouse) {
-        throw new NotFoundException('Source warehouse not found.');
+        throw new NotFoundException(
+          'Source warehouse not found.',
+        );
       }
 
-      const destinationWarehouse = await tx.warehouse.findUnique({
-        where: {
-          id: data.destinationWarehouseId,
-        },
-      });
+      const destinationWarehouse =
+        await tx.warehouse.findUnique({
+          where: {
+            id: data.destinationWarehouseId,
+          },
+        });
 
       if (!destinationWarehouse) {
         throw new NotFoundException(
@@ -63,15 +68,72 @@ export class TransferService {
         );
       }
 
-      const sourceBalance = await tx.inventoryBalance.findFirst({
-        where: {
-          inventoryItemId: data.inventoryItemId,
-          warehouseId: data.sourceWarehouseId,
-          warehouseBinId: data.sourceBinId ?? null,
-          batchId: data.batchId ?? null,
-          serialId: data.serialId ?? null,
-        },
-      });
+      /*
+       * Validate source bin when supplied.
+       */
+      if (data.sourceBinId) {
+        const sourceBin = await tx.warehouseBin.findFirst({
+          where: {
+            id: data.sourceBinId,
+            warehouseRack: {
+              warehouseZone: {
+                warehouseId: data.sourceWarehouseId,
+              },
+            },
+          },
+        });
+
+        if (!sourceBin) {
+          throw new NotFoundException(
+            'Source warehouse bin not found for the source warehouse.',
+          );
+        }
+      }
+
+      /*
+       * Validate destination bin when supplied.
+       */
+      if (data.destinationBinId) {
+        const destinationBin =
+          await tx.warehouseBin.findFirst({
+            where: {
+              id: data.destinationBinId,
+              warehouseRack: {
+                warehouseZone: {
+                  warehouseId:
+                    data.destinationWarehouseId,
+                },
+              },
+            },
+          });
+
+        if (!destinationBin) {
+          throw new NotFoundException(
+            'Destination warehouse bin not found for the destination warehouse.',
+          );
+        }
+      }
+
+
+      const sourceBalance =
+        await tx.inventoryBalance.findFirst({
+          where: {
+            inventoryItemId:
+              data.inventoryItemId,
+
+            warehouseId:
+              data.sourceWarehouseId,
+
+            warehouseBinId:
+              data.sourceBinId ?? null,
+
+            batchId:
+              data.batchId ?? null,
+
+            serialId:
+              data.serialId ?? null,
+          },
+        });
 
       if (!sourceBalance) {
         throw new NotFoundException(
@@ -79,17 +141,31 @@ export class TransferService {
         );
       }
 
-      if (sourceBalance.quantityAvailable < data.quantity) {
+      if (
+        sourceBalance.quantityAvailable <
+        data.quantity
+      ) {
         throw new BadRequestException(
           'Insufficient available inventory at source location.',
         );
       }
 
       const sourceQuantityOnHand =
-        sourceBalance.quantityOnHand - data.quantity;
+        sourceBalance.quantityOnHand -
+        data.quantity;
 
       const sourceQuantityAvailable =
-        sourceBalance.quantityAvailable - data.quantity;
+        sourceBalance.quantityAvailable -
+        data.quantity;
+
+      if (
+        sourceQuantityOnHand < 0 ||
+        sourceQuantityAvailable < 0
+      ) {
+        throw new BadRequestException(
+          'Transfer would result in negative source inventory.',
+        );
+      }
 
       const updatedSourceBalance =
         await tx.inventoryBalance.update({
@@ -97,19 +173,31 @@ export class TransferService {
             id: sourceBalance.id,
           },
           data: {
-            quantityOnHand: sourceQuantityOnHand,
-            quantityAvailable: sourceQuantityAvailable,
+            quantityOnHand:
+              sourceQuantityOnHand,
+
+            quantityAvailable:
+              sourceQuantityAvailable,
           },
         });
 
       const destinationBalance =
         await tx.inventoryBalance.findFirst({
           where: {
-            inventoryItemId: data.inventoryItemId,
-            warehouseId: data.destinationWarehouseId,
-            warehouseBinId: data.destinationBinId ?? null,
-            batchId: data.batchId ?? null,
-            serialId: data.serialId ?? null,
+            inventoryItemId:
+              data.inventoryItemId,
+
+            warehouseId:
+              data.destinationWarehouseId,
+
+            warehouseBinId:
+              data.destinationBinId ?? null,
+
+            batchId:
+              data.batchId ?? null,
+
+            serialId:
+              data.serialId ?? null,
           },
         });
 
@@ -139,60 +227,110 @@ export class TransferService {
         updatedDestinationBalance =
           await tx.inventoryBalance.create({
             data: {
-              inventoryItemId: data.inventoryItemId,
+              inventoryItemId:
+                data.inventoryItemId,
 
-              warehouseId: data.destinationWarehouseId,
+              warehouseId:
+                data.destinationWarehouseId,
 
-              warehouseBinId: data.destinationBinId,
+              warehouseBinId:
+                data.destinationBinId,
 
-              batchId: data.batchId,
-              serialId: data.serialId,
+              batchId:
+                data.batchId,
 
-              quantityOnHand: data.quantity,
+              serialId:
+                data.serialId,
+
+              quantityOnHand:
+                data.quantity,
+
               quantityReserved: 0,
-              quantityAvailable: data.quantity,
+
+              quantityAvailable:
+                data.quantity,
+
               quantityBlocked: 0,
+
               quantityDamaged: 0,
 
-              averageUnitCost: data.unitCost ?? 0,
+              averageUnitCost:
+                data.unitCost ??
+                sourceBalance.averageUnitCost,
             },
           });
       }
 
+      /*
+       * For an internal transfer, aggregate InventoryItem
+       * quantities do not change. Stock merely moves between
+       * warehouse/bin balances.
+       */
+
+      const movementUnitCost =
+        data.unitCost ??
+        sourceBalance.averageUnitCost;
+
       const movement =
         await this.movementService.create(
           {
-            inventoryItemId: data.inventoryItemId,
+            inventoryItemId:
+              data.inventoryItemId,
 
-            warehouseId: data.destinationWarehouseId,
+            warehouseId:
+              data.destinationWarehouseId,
 
-            sourceBinId: data.sourceBinId,
-            destinationBinId: data.destinationBinId,
+            sourceBinId:
+              data.sourceBinId,
 
-            batchId: data.batchId,
-            serialId: data.serialId,
+            destinationBinId:
+              data.destinationBinId,
 
-            movementType: 'TRANSFER',
-            movementStatus: 'POSTED',
+            batchId:
+              data.batchId,
 
-            quantity: data.quantity,
+            serialId:
+              data.serialId,
 
-            unitCost: data.unitCost,
+            movementType:
+              'TRANSFER',
 
-            referenceModule: 'InventoryEngine',
-            referenceId: data.inventoryItemId,
+            movementStatus:
+              'POSTED',
 
-            remarks: data.remarks,
-            createdBy: data.transferredBy,
+            quantity:
+              data.quantity,
+
+            unitCost:
+              movementUnitCost,
+
+            totalCost:
+              movementUnitCost *
+              data.quantity,
+
+            referenceModule:
+              'InventoryEngine',
+
+            referenceId:
+              data.inventoryItemId,
+
+            remarks:
+              data.remarks,
+
+            createdBy:
+              data.transferredBy,
           },
           tx,
         );
 
       return {
         success: true,
-        message: 'Inventory transferred successfully.',
 
-        sourceBalance: updatedSourceBalance,
+        message:
+          'Inventory transferred successfully.',
+
+        sourceBalance:
+          updatedSourceBalance,
 
         destinationBalance:
           updatedDestinationBalance,
