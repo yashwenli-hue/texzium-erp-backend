@@ -59,6 +59,18 @@ export class PickService {
         );
       }
 
+      const inventory = await tx.inventoryItem.findUnique({
+        where: {
+          id: dispatchItem.inventoryItemId,
+        },
+      });
+
+      if (!inventory) {
+        throw new NotFoundException(
+          'Inventory Item not found.',
+        );
+      }
+
       let warehouseBinId: string | null = null;
 
       if (dispatchItem.binLocation) {
@@ -109,9 +121,34 @@ export class PickService {
         );
       }
 
+      if (
+        inventory.reservedQty < data.quantity
+      ) {
+        throw new BadRequestException(
+          'Aggregate inventory reserved quantity is less than the pick quantity.',
+        );
+      }
+
       const newReservedQty =
         balance.quantityReserved -
         data.quantity;
+
+      const newInventoryReservedQty =
+        inventory.reservedQty -
+        data.quantity;
+
+      const newInventoryAvailableQty =
+        inventory.availableQty +
+        data.quantity;
+
+      if (
+        newInventoryReservedQty < 0 ||
+        newInventoryAvailableQty < 0
+      ) {
+        throw new BadRequestException(
+          'Picking would result in invalid aggregate inventory quantities.',
+        );
+      }
 
       const updatedBalance =
         await tx.inventoryBalance.update({
@@ -121,6 +158,22 @@ export class PickService {
           data: {
             quantityReserved:
               newReservedQty,
+          },
+        });
+
+      const updatedInventory =
+        await tx.inventoryItem.update({
+          where: {
+            id: inventory.id,
+          },
+          data: {
+            reservedQty:
+              newInventoryReservedQty,
+
+            availableQty:
+              newInventoryAvailableQty,
+
+            updatedAt: new Date(),
           },
         });
 
@@ -202,6 +255,9 @@ export class PickService {
 
         message:
           'Inventory picked successfully.',
+
+        inventoryItem:
+          updatedInventory,
 
         balance:
           updatedBalance,
