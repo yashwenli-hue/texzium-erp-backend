@@ -9,6 +9,7 @@ import { IssueInventoryDto } from './dto/issue-inventory.dto';
 import { ReleaseInventoryDto } from './dto/release-inventory.dto';
 import { ReceiveInventoryDto } from './dto/receive-inventory.dto';
 import { TransferInventoryDto } from './dto/transfer-inventory.dto';
+import { AdjustmentInventoryDto } from './dto/adjustment-inventory.dto';
 
 @Controller('inventory-engine')
 export class InventoryEngineController {
@@ -50,4 +51,10 @@ export class InventoryEngineController {
   transfer(@Body() body: TransferInventoryDto) {
     return this.inventoryEngineService.transferStock(body);
   }
+
+    @Post('adjustment')
+  adjustment(@Body() body: AdjustmentInventoryDto) {
+    return this.inventoryEngineService.adjustStock(body);
+  }
+
 }

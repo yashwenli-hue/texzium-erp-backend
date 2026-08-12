@@ -18,6 +18,9 @@ import { ReleaseInventoryDto } from './dto/release-inventory.dto';
 import { ReceiveInventoryDto } from './dto/receive-inventory.dto';
 import { TransferInventoryDto } from './dto/transfer-inventory.dto';
 
+import { AdjustmentService } from './services/adjustment.service';
+import { AdjustmentInventoryDto } from './dto/adjustment-inventory.dto';
+
 @Injectable()
 export class InventoryEngineService {
   constructor(
@@ -28,6 +31,7 @@ export class InventoryEngineService {
     private readonly releaseService: ReleaseService,
     private readonly receiveService: ReceiveService,
     private readonly transferService: TransferService,
+    private readonly adjustmentService: AdjustmentService,
     private readonly prisma: PrismaService,
   ) {}
 
@@ -69,4 +73,8 @@ export class InventoryEngineService {
   async transferStock(data: TransferInventoryDto) {
     return this.transferService.execute(data);
   }
+
+  async adjustStock(data: AdjustmentInventoryDto) {
+  return this.adjustmentService.execute(data);
+}
 }
