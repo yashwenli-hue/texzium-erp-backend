@@ -8,6 +8,7 @@ import { PackService } from './services/pack.service';
 import { IssueService } from './services/issue.service';
 import { ReleaseService } from './services/release.service';
 import { ReceiveService } from './services/receive.service';
+import { TransferService } from './services/transfer.service';
 
 import { ReserveInventoryDto } from './dto/reserve-inventory.dto';
 import { PickInventoryDto } from './dto/pick-inventory.dto';
@@ -15,6 +16,7 @@ import { PackInventoryDto } from './dto/pack-inventory.dto';
 import { IssueInventoryDto } from './dto/issue-inventory.dto';
 import { ReleaseInventoryDto } from './dto/release-inventory.dto';
 import { ReceiveInventoryDto } from './dto/receive-inventory.dto';
+import { TransferInventoryDto } from './dto/transfer-inventory.dto';
 
 @Injectable()
 export class InventoryEngineService {
@@ -25,6 +27,7 @@ export class InventoryEngineService {
     private readonly issueService: IssueService,
     private readonly releaseService: ReleaseService,
     private readonly receiveService: ReceiveService,
+    private readonly transferService: TransferService,
     private readonly prisma: PrismaService,
   ) {}
 
@@ -61,5 +64,9 @@ export class InventoryEngineService {
 
   async receiveStock(data: ReceiveInventoryDto) {
     return this.receiveService.execute(data);
+  }
+
+  async transferStock(data: TransferInventoryDto) {
+    return this.transferService.execute(data);
   }
 }
