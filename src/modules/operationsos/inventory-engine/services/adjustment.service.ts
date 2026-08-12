@@ -72,60 +72,145 @@ export class AdjustmentService {
         );
       }
 
+      const quantityDelta =
+        data.adjustmentType === 'IN'
+          ? data.quantity
+          : -data.quantity;
+
+      /*
+       * ==========================================================
+       * INVENTORY BALANCE
+       * ==========================================================
+       */
+
       let updatedBalance;
 
       if (balance) {
         const quantityOnHand =
-          data.adjustmentType === 'IN'
-            ? balance.quantityOnHand + data.quantity
-            : balance.quantityOnHand - data.quantity;
+          balance.quantityOnHand + quantityDelta;
 
         const quantityAvailable =
-          data.adjustmentType === 'IN'
-            ? balance.quantityAvailable + data.quantity
-            : balance.quantityAvailable - data.quantity;
+          balance.quantityAvailable + quantityDelta;
 
-        if (quantityOnHand < 0 || quantityAvailable < 0) {
+        if (
+          quantityOnHand < 0 ||
+          quantityAvailable < 0
+        ) {
           throw new BadRequestException(
             'Adjustment would result in negative inventory.',
           );
         }
 
-        updatedBalance = await tx.inventoryBalance.update({
-          where: {
-            id: balance.id,
-          },
-          data: {
-            quantityOnHand,
-            quantityAvailable,
-
-            averageUnitCost:
-              data.unitCost ?? balance.averageUnitCost,
-          },
-        });
+        updatedBalance =
+          await tx.inventoryBalance.update({
+            where: {
+              id: balance.id,
+            },
+            data: {
+              quantityOnHand,
+              quantityAvailable,
+              averageUnitCost:
+                data.unitCost ??
+                balance.averageUnitCost,
+            },
+          });
       } else {
-        updatedBalance = await tx.inventoryBalance.create({
+        /*
+         * A new balance can only be created for ADJUSTMENT_IN.
+         * ADJUSTMENT_OUT without an existing balance was rejected above.
+         */
+
+        updatedBalance =
+          await tx.inventoryBalance.create({
+            data: {
+              inventoryItemId:
+                data.inventoryItemId,
+
+              warehouseId:
+                data.warehouseId,
+
+              warehouseBinId:
+                data.warehouseBinId,
+
+              batchId:
+                data.batchId,
+
+              serialId:
+                data.serialId,
+
+              quantityOnHand:
+                data.quantity,
+
+              quantityReserved: 0,
+
+              quantityAvailable:
+                data.quantity,
+
+              quantityBlocked: 0,
+
+              quantityDamaged: 0,
+
+              averageUnitCost:
+                data.unitCost ?? 0,
+            },
+          });
+      }
+
+      /*
+       * ==========================================================
+       * INVENTORY ITEM AGGREGATE
+       * ==========================================================
+       *
+       * Adjustment IN:
+       *   stockQty      +Q
+       *   availableQty  +Q
+       *
+       * Adjustment OUT:
+       *   stockQty      -Q
+       *   availableQty  -Q
+       *
+       * reservedQty remains unchanged.
+       */
+
+      const updatedStockQty =
+        inventoryItem.stockQty +
+        quantityDelta;
+
+      const updatedAvailableQty =
+        inventoryItem.availableQty +
+        quantityDelta;
+
+      if (
+        updatedStockQty < 0 ||
+        updatedAvailableQty < 0
+      ) {
+        throw new BadRequestException(
+          'Adjustment would result in negative inventory item quantity.',
+        );
+      }
+
+      const updatedInventoryItem =
+        await tx.inventoryItem.update({
+          where: {
+            id: inventoryItem.id,
+          },
           data: {
-            inventoryItemId: data.inventoryItemId,
+            stockQty:
+              updatedStockQty,
 
-            warehouseId: data.warehouseId,
+            availableQty:
+              updatedAvailableQty,
 
-            warehouseBinId: data.warehouseBinId,
-
-            batchId: data.batchId,
-
-            serialId: data.serialId,
-
-            quantityOnHand: data.quantity,
-            quantityReserved: 0,
-            quantityAvailable: data.quantity,
-            quantityBlocked: 0,
-            quantityDamaged: 0,
-
-            averageUnitCost: data.unitCost ?? 0,
+            updatedAt:
+              new Date(),
           },
         });
-      }
+
+      /*
+       * ==========================================================
+       * INVENTORY MOVEMENT
+       * ==========================================================
+       */
 
       const movementType =
         data.adjustmentType === 'IN'
@@ -135,9 +220,11 @@ export class AdjustmentService {
       const movement =
         await this.movementService.create(
           {
-            inventoryItemId: data.inventoryItemId,
+            inventoryItemId:
+              data.inventoryItemId,
 
-            warehouseId: data.warehouseId,
+            warehouseId:
+              data.warehouseId,
 
             destinationBinId:
               data.adjustmentType === 'IN'
@@ -149,32 +236,58 @@ export class AdjustmentService {
                 ? data.warehouseBinId
                 : undefined,
 
-            batchId: data.batchId,
-            serialId: data.serialId,
+            batchId:
+              data.batchId,
+
+            serialId:
+              data.serialId,
 
             movementType,
-            movementStatus: 'POSTED',
 
-            quantity: data.quantity,
+            movementStatus:
+              'POSTED',
 
-            unitCost: data.unitCost,
+            quantity:
+              data.quantity,
 
-            referenceModule: 'InventoryEngine',
-            referenceId: data.inventoryItemId,
+            unitCost:
+              data.unitCost,
 
-            remarks: data.remarks,
-            createdBy: data.adjustedBy,
+            totalCost:
+              data.unitCost !== undefined
+                ? data.unitCost *
+                  data.quantity
+                : undefined,
+
+            referenceModule:
+              'InventoryEngine',
+
+            referenceId:
+              data.inventoryItemId,
+
+            remarks:
+              data.remarks,
+
+            createdBy:
+              data.adjustedBy,
           },
           tx,
         );
 
       return {
         success: true,
-        message: 'Inventory adjusted successfully.',
-        balance: updatedBalance,
+
+        message:
+          'Inventory adjusted successfully.',
+
+        inventoryItem:
+          updatedInventoryItem,
+
+        balance:
+          updatedBalance,
+
         movement,
       };
     });
   }
 }
-
