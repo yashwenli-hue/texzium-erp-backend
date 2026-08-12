@@ -28,6 +28,19 @@ export class ReserveService {
         );
       }
 
+      const inventoryItem =
+        await tx.inventoryItem.findUnique({
+          where: {
+            id: data.inventoryItemId,
+          },
+        });
+
+      if (!inventoryItem) {
+        throw new NotFoundException(
+          'Inventory Item not found.',
+        );
+      }
+
       const dispatchItem =
         await tx.dispatchOrderItem.findUnique({
           where: {
@@ -98,6 +111,10 @@ export class ReserveService {
         );
       }
 
+      /*
+       * The selected warehouse/bin balance is the source of truth
+       * for reservation availability.
+       */
       if (
         balance.quantityAvailable < data.quantity
       ) {
@@ -112,14 +129,63 @@ export class ReserveService {
       const newAvailableQty =
         balance.quantityAvailable - data.quantity;
 
+      if (
+        newReservedQty < 0 ||
+        newAvailableQty < 0
+      ) {
+        throw new BadRequestException(
+          'Reservation would result in invalid inventory balance quantities.',
+        );
+      }
+
+      /*
+       * Synchronize aggregate InventoryItem.
+       *
+       * Reserve moves aggregate stock from AVAILABLE
+       * to RESERVED.
+       */
+      const newInventoryReservedQty =
+        inventoryItem.reservedQty + data.quantity;
+
+      const newInventoryAvailableQty =
+        inventoryItem.availableQty - data.quantity;
+
+      if (
+        newInventoryReservedQty < 0 ||
+        newInventoryAvailableQty < 0
+      ) {
+        throw new BadRequestException(
+          'Reservation would result in invalid aggregate inventory quantities.',
+        );
+      }
+
       const updatedBalance =
         await tx.inventoryBalance.update({
           where: {
             id: balance.id,
           },
           data: {
-            quantityReserved: newReservedQty,
-            quantityAvailable: newAvailableQty,
+            quantityReserved:
+              newReservedQty,
+
+            quantityAvailable:
+              newAvailableQty,
+          },
+        });
+
+      const updatedInventory =
+        await tx.inventoryItem.update({
+          where: {
+            id: inventoryItem.id,
+          },
+          data: {
+            reservedQty:
+              newInventoryReservedQty,
+
+            availableQty:
+              newInventoryAvailableQty,
+
+            updatedAt: new Date(),
           },
         });
 
@@ -200,6 +266,9 @@ export class ReserveService {
 
         message:
           'Inventory reserved successfully.',
+
+        inventoryItem:
+          updatedInventory,
 
         balance:
           updatedBalance,
