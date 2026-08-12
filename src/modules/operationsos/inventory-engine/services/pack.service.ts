@@ -142,6 +142,10 @@ export class PackService {
             warehouseId:
               dispatchItem.warehouseId,
 
+            sourceBinId:
+              warehouseBinId ??
+              undefined,
+
             batchId:
               balance.batchId ??
               undefined,
