@@ -1,9 +1,0 @@
-export class IssueInventoryDto {
-  dispatchOrderItemId: string;
-
-  quantity: number;
-
-  issuedBy: string;
-
-  remarks?: string;
-}
