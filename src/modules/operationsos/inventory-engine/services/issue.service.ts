@@ -81,6 +81,16 @@ export class IssueService {
       );
     }
 
+    if (
+      dispatchItem &&
+      dispatchItem.warehouseId &&
+      dispatchItem.warehouseId !== data.warehouseId
+    ) {
+      throw new BadRequestException(
+        'Dispatch Order Item warehouse does not match the issue warehouse.',
+      );
+    }
+
     let warehouseBinId: string | null = null;
 
     if (dispatchItem?.binLocation) {
@@ -118,6 +128,18 @@ export class IssueService {
       );
     }
 
+    /*
+     * Issue consumes physical on-hand stock.
+     *
+     * At this stage the stock has already passed through:
+     *
+     * RESERVE -> PICK -> PACK
+     *
+     * Therefore quantityAvailable may legitimately be zero
+     * while quantityOnHand still contains the packed stock.
+     *
+     * Do NOT reject the issue based on quantityAvailable.
+     */
     if (balance.quantityOnHand < data.quantity) {
       throw new BadRequestException(
         `Insufficient stock for ${inventory.productName}.`,
@@ -127,12 +149,21 @@ export class IssueService {
     const updatedOnHand =
       balance.quantityOnHand - data.quantity;
 
-    const updatedAvailable =
-      balance.quantityAvailable - data.quantity;
+    /*
+     * Packed stock is no longer available inventory.
+     *
+     * quantityAvailable remains at zero when it is already zero.
+     * If a legacy balance still has available quantity, consume it
+     * proportionally but never allow it to become negative.
+     */
+    const updatedAvailable = Math.max(
+      0,
+      balance.quantityAvailable - data.quantity,
+    );
 
-    if (updatedAvailable < 0) {
+    if (updatedOnHand < 0) {
       throw new BadRequestException(
-        `Insufficient available stock for ${inventory.productName}.`,
+        `Insufficient stock for ${inventory.productName}.`,
       );
     }
 
@@ -148,7 +179,11 @@ export class IssueService {
         },
       });
 
-    let updatedDispatchItem: Awaited<ReturnType<typeof tx.dispatchOrderItem.update>> | null = null;
+    let updatedDispatchItem:
+      | Awaited<
+          ReturnType<typeof tx.dispatchOrderItem.update>
+        >
+      | null = null;
 
     if (dispatchItem) {
       const remainingPackedQty =
@@ -165,21 +200,33 @@ export class IssueService {
           data: {
             packedQty: remainingPackedQty,
             dispatchedQty: updatedDispatchedQty,
-            isPacked: remainingPackedQty > 0,
-            isDispatched: updatedDispatchedQty > 0,
+
+            isPacked:
+              remainingPackedQty > 0,
+
+            isDispatched:
+              updatedDispatchedQty > 0,
+
             remarks:
-              data.remarks ?? dispatchItem.remarks,
+              data.remarks ??
+              dispatchItem.remarks,
           },
         });
     }
 
+    /*
+     * Synchronize aggregate InventoryItem.
+     */
     const updatedStockQty =
       inventory.stockQty - data.quantity;
 
     const updatedAvailableQty =
       inventory.availableQty - data.quantity;
 
-    if (updatedStockQty < 0 || updatedAvailableQty < 0) {
+    if (
+      updatedStockQty < 0 ||
+      updatedAvailableQty < 0
+    ) {
       throw new BadRequestException(
         `Insufficient aggregate inventory for ${inventory.productName}.`,
       );
@@ -200,40 +247,82 @@ export class IssueService {
     const transaction =
       await tx.inventoryTransaction.create({
         data: {
-          inventoryItemId: data.inventoryItemId,
-          warehouseId: data.warehouseId,
-          transactionType: 'ISSUE',
-          referenceModule: data.referenceModule,
-          referenceId: data.referenceId,
-          quantity: -data.quantity,
-          balanceAfter: updatedOnHand,
-          remarks: data.remarks,
-          createdBy: data.createdBy,
+          inventoryItemId:
+            data.inventoryItemId,
+
+          warehouseId:
+            data.warehouseId,
+
+          transactionType:
+            'ISSUE',
+
+          referenceModule:
+            data.referenceModule,
+
+          referenceId:
+            data.referenceId,
+
+          quantity:
+            -data.quantity,
+
+          balanceAfter:
+            updatedOnHand,
+
+          remarks:
+            data.remarks,
+
+          createdBy:
+            data.createdBy,
         },
       });
 
     const movement =
       await this.movementService.create(
         {
-          inventoryItemId: data.inventoryItemId,
-          warehouseId: data.warehouseId,
+          inventoryItemId:
+            data.inventoryItemId,
+
+          warehouseId:
+            data.warehouseId,
+
           sourceBinId:
             warehouseBinId ?? undefined,
+
           batchId:
-            balance.batchId ?? undefined,
+            balance.batchId ??
+            undefined,
+
           serialId:
-            balance.serialId ?? undefined,
-          movementType: 'ISSUE',
-          movementStatus: 'POSTED',
-          quantity: data.quantity,
-          unitCost: balance.averageUnitCost,
+            balance.serialId ??
+            undefined,
+
+          movementType:
+            'ISSUE',
+
+          movementStatus:
+            'POSTED',
+
+          quantity:
+            data.quantity,
+
+          unitCost:
+            balance.averageUnitCost,
+
           totalCost:
             balance.averageUnitCost *
             data.quantity,
-          referenceModule: data.referenceModule,
-          referenceId: data.referenceId,
-          remarks: data.remarks,
-          createdBy: data.createdBy,
+
+          referenceModule:
+            data.referenceModule,
+
+          referenceId:
+            data.referenceId,
+
+          remarks:
+            data.remarks,
+
+          createdBy:
+            data.createdBy,
         },
         tx,
       );
@@ -241,9 +330,12 @@ export class IssueService {
     return {
       success: true,
       message: 'Inventory issued successfully.',
-      inventoryItem: updatedInventory,
-      balance: updatedBalance,
-      dispatchItem: updatedDispatchItem,
+      inventoryItem:
+        updatedInventory,
+      balance:
+        updatedBalance,
+      dispatchItem:
+        updatedDispatchItem,
       transaction,
       movement,
     };
