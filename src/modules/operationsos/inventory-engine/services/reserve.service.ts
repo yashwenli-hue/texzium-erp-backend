@@ -50,12 +50,22 @@ export class ReserveService {
         );
       }
 
+      /*
+       * Resolve the warehouse bin from the request when supplied.
+       * Otherwise inherit the bin location already assigned to
+       * the Dispatch Order Item.
+       */
+      const effectiveBinLocation =
+        data.binLocation ??
+        dispatchItem.binLocation ??
+        undefined;
+
       let warehouseBinId: string | null = null;
 
-      if (data.binLocation) {
+      if (effectiveBinLocation) {
         const bin = await tx.warehouseBin.findFirst({
           where: {
-            code: data.binLocation,
+            code: effectiveBinLocation,
             warehouseRack: {
               warehouseZone: {
                 warehouseId: data.warehouseId,
@@ -66,7 +76,7 @@ export class ReserveService {
 
         if (!bin) {
           throw new NotFoundException(
-            'Warehouse bin not found.',
+            'Warehouse bin not found for the selected warehouse.',
           );
         }
 
@@ -119,7 +129,8 @@ export class ReserveService {
             id: dispatchItem.id,
           },
           data: {
-            inventoryItemId: data.inventoryItemId,
+            inventoryItemId:
+              data.inventoryItemId,
 
             reservedQty:
               dispatchItem.reservedQty +
@@ -131,7 +142,7 @@ export class ReserveService {
               data.warehouseId,
 
             binLocation:
-              data.binLocation,
+              effectiveBinLocation,
 
             remarks:
               data.remarks ??
@@ -148,11 +159,17 @@ export class ReserveService {
             warehouseId:
               data.warehouseId,
 
+            sourceBinId:
+              warehouseBinId ??
+              undefined,
+
             batchId:
-              balance.batchId ?? undefined,
+              balance.batchId ??
+              undefined,
 
             serialId:
-              balance.serialId ?? undefined,
+              balance.serialId ??
+              undefined,
 
             movementType:
               'RESERVATION',

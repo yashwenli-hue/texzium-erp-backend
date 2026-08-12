@@ -218,6 +218,10 @@ export class PickService {
             warehouseId:
               dispatchItem.warehouseId,
 
+            sourceBinId:
+              warehouseBinId ??
+              undefined,
+
             batchId:
               balance.batchId ??
               undefined,
