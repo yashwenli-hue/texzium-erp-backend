@@ -22,11 +22,12 @@ export class ReleaseService {
         );
       }
 
-      const dispatchItem = await tx.dispatchOrderItem.findUnique({
-        where: {
-          id: data.dispatchOrderItemId,
-        },
-      });
+      const dispatchItem =
+        await tx.dispatchOrderItem.findUnique({
+          where: {
+            id: data.dispatchOrderItemId,
+          },
+        });
 
       if (!dispatchItem) {
         throw new NotFoundException(
@@ -40,7 +41,10 @@ export class ReleaseService {
         );
       }
 
-      if (dispatchItem.inventoryItemId !== data.inventoryItemId) {
+      if (
+        dispatchItem.inventoryItemId !==
+        data.inventoryItemId
+      ) {
         throw new BadRequestException(
           'Inventory Item does not match the Dispatch Order Item.',
         );
@@ -64,30 +68,65 @@ export class ReleaseService {
         );
       }
 
-      const balance = await tx.inventoryBalance.findFirst({
-        where: {
-          inventoryItemId: data.inventoryItemId,
-          warehouseId: dispatchItem.warehouseId,
-        },
-      });
+      let warehouseBinId: string | null = null;
+
+      if (dispatchItem.binLocation) {
+        const bin = await tx.warehouseBin.findFirst({
+          where: {
+            code: dispatchItem.binLocation,
+            warehouseRack: {
+              warehouseZone: {
+                warehouseId:
+                  dispatchItem.warehouseId,
+              },
+            },
+          },
+        });
+
+        if (!bin) {
+          throw new NotFoundException(
+            'Warehouse bin not found for the Dispatch Order Item.',
+          );
+        }
+
+        warehouseBinId = bin.id;
+      }
+
+      const balance =
+        await tx.inventoryBalance.findFirst({
+          where: {
+            inventoryItemId:
+              data.inventoryItemId,
+
+            warehouseId:
+              dispatchItem.warehouseId,
+
+            warehouseBinId,
+          },
+        });
 
       if (!balance) {
         throw new NotFoundException(
-          'Inventory balance not found for the assigned warehouse.',
+          'Inventory balance not found for the assigned warehouse and bin.',
         );
       }
 
-      if (balance.quantityReserved < data.quantity) {
+      if (
+        balance.quantityReserved <
+        data.quantity
+      ) {
         throw new BadRequestException(
           'Inventory reserved quantity is less than the release quantity.',
         );
       }
 
       const newReservedQty =
-        balance.quantityReserved - data.quantity;
+        balance.quantityReserved -
+        data.quantity;
 
       const newAvailableQty =
-        balance.quantityAvailable + data.quantity;
+        balance.quantityAvailable +
+        data.quantity;
 
       const updatedBalance =
         await tx.inventoryBalance.update({
@@ -95,13 +134,17 @@ export class ReleaseService {
             id: balance.id,
           },
           data: {
-            quantityReserved: newReservedQty,
-            quantityAvailable: newAvailableQty,
+            quantityReserved:
+              newReservedQty,
+
+            quantityAvailable:
+              newAvailableQty,
           },
         });
 
       const remainingDispatchReservedQty =
-        dispatchItem.reservedQty - data.quantity;
+        dispatchItem.reservedQty -
+        data.quantity;
 
       const updatedDispatchItem =
         await tx.dispatchOrderItem.update({
@@ -109,41 +152,67 @@ export class ReleaseService {
             id: dispatchItem.id,
           },
           data: {
-            reservedQty: remainingDispatchReservedQty,
+            reservedQty:
+              remainingDispatchReservedQty,
+
             isReserved:
               remainingDispatchReservedQty > 0,
+
+            remarks:
+              data.remarks ??
+              dispatchItem.remarks,
           },
         });
 
       const movement =
         await this.movementService.create(
           {
-            inventoryItemId: data.inventoryItemId,
+            inventoryItemId:
+              data.inventoryItemId,
 
-            warehouseId: dispatchItem.warehouseId,
+            warehouseId:
+              dispatchItem.warehouseId,
 
             sourceBinId:
-              dispatchItem.binLocation ?? undefined,
+              warehouseBinId ??
+              undefined,
 
-            movementType: 'RELEASE',
-            movementStatus: 'POSTED',
+            movementType:
+              'RELEASE',
 
-            quantity: data.quantity,
+            movementStatus:
+              'POSTED',
 
-            referenceModule: 'DispatchOrder',
-            referenceId: dispatchItem.dispatchOrderId,
+            quantity:
+              data.quantity,
 
-            remarks: data.remarks,
-            createdBy: data.releasedBy,
+            referenceModule:
+              'DispatchOrder',
+
+            referenceId:
+              dispatchItem.dispatchOrderId,
+
+            remarks:
+              data.remarks,
+
+            createdBy:
+              data.releasedBy,
           },
           tx,
         );
 
       return {
         success: true,
-        message: 'Inventory released successfully.',
-        balance: updatedBalance,
-        dispatchItem: updatedDispatchItem,
+
+        message:
+          'Inventory released successfully.',
+
+        balance:
+          updatedBalance,
+
+        dispatchItem:
+          updatedDispatchItem,
+
         movement,
       };
     });
