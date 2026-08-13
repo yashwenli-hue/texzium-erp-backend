@@ -46,6 +46,25 @@ export class AdjustmentService {
         );
       }
 
+      if (data.warehouseBinId) {
+        const warehouseBin = await tx.warehouseBin.findFirst({
+          where: {
+            id: data.warehouseBinId,
+            warehouseRack: {
+              warehouseZone: {
+                warehouseId: data.warehouseId,
+              },
+            },
+          },
+        });
+
+        if (!warehouseBin) {
+          throw new NotFoundException(
+            'Warehouse Bin not found for the selected warehouse.',
+          );
+        }
+      }
+
       const balance = await tx.inventoryBalance.findFirst({
         where: {
           inventoryItemId: data.inventoryItemId,
