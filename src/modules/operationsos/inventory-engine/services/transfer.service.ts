@@ -6,12 +6,14 @@ import {
 import { PrismaService } from '../../../../core/database/prisma.service';
 import { TransferInventoryDto } from '../dto/transfer-inventory.dto';
 import { MovementService } from './movement.service';
+import { TraceabilityService } from './traceability.service';
 
 @Injectable()
 export class TransferService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly movementService: MovementService,
+    private readonly traceabilityService: TraceabilityService,
   ) {}
 
   async execute(data: TransferInventoryDto) {
@@ -42,6 +44,12 @@ export class TransferService {
           'Inventory Item not found.',
         );
       }
+
+      await this.traceabilityService.validate(tx, {
+        inventoryItemId: inventoryItem.id,
+        batchId: data.batchId,
+        serialId: data.serialId,
+      });
 
       const sourceWarehouse = await tx.warehouse.findUnique({
         where: {
