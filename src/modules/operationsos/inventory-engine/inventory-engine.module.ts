@@ -17,6 +17,7 @@ import { TransferService } from './services/transfer.service';
 import { AdjustmentService } from './services/adjustment.service';
 
 import { ReleaseService } from './services/release.service';
+import { TraceabilityService } from './services/traceability.service';
 
 @Module({
   imports: [DatabaseModule],
@@ -34,6 +35,7 @@ import { ReleaseService } from './services/release.service';
     TransferService,
     AdjustmentService,
     ReleaseService,
+    TraceabilityService,
   ],
 
   exports: [
@@ -47,6 +49,7 @@ import { ReleaseService } from './services/release.service';
     TransferService,
     AdjustmentService,
     ReleaseService,  
+    TraceabilityService,
 ],
 })
 export class InventoryEngineModule {}

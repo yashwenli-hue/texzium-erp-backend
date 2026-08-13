@@ -6,12 +6,14 @@ import {
 import { PrismaService } from '../../../../core/database/prisma.service';
 import { ReceiveInventoryDto } from '../dto/receive-inventory.dto';
 import { MovementService } from './movement.service';
+import { TraceabilityService } from './traceability.service';
 
 @Injectable()
 export class ReceiveService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly movementService: MovementService,
+    private readonly traceabilityService: TraceabilityService,
   ) {}
 
   async execute(data: ReceiveInventoryDto) {
@@ -89,6 +91,12 @@ export class ReceiveService {
           'Inventory Item linked to Goods Receipt was not found.',
         );
       }
+
+      await this.traceabilityService.validate(tx, {
+        inventoryItemId: inventoryItem.id,
+        batchId: data.batchId,
+        serialId: data.serialId,
+      });
 
       const warehouse = await tx.warehouse.findUnique({
         where: {
