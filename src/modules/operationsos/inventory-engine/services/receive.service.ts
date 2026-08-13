@@ -101,16 +101,23 @@ export class ReceiveService {
       }
 
       if (data.warehouseBinId) {
-        const warehouseBin = await tx.warehouseBin.findUnique({
-          where: {
-            id: data.warehouseBinId,
-          },
-        });
+  const warehouseBin = await tx.warehouseBin.findFirst({
+    where: {
+      id: data.warehouseBinId,
+      warehouseRack: {
+        warehouseZone: {
+          warehouseId: data.warehouseId,
+        },
+      },
+    },
+  });
 
-        if (!warehouseBin) {
-          throw new NotFoundException('Warehouse Bin not found.');
-        }
-      }
+  if (!warehouseBin) {
+    throw new NotFoundException(
+      'Warehouse Bin not found for the selected warehouse.',
+    );
+  }
+}
 
       const existingBalance =
         await tx.inventoryBalance.findFirst({
