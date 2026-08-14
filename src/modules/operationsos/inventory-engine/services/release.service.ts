@@ -6,12 +6,15 @@ import {
 import { PrismaService } from '../../../../core/database/prisma.service';
 import { ReleaseInventoryDto } from '../dto/release-inventory.dto';
 import { MovementService } from './movement.service';
+import { TraceabilityService } from './traceability.service';
+
 
 @Injectable()
 export class ReleaseService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly movementService: MovementService,
+    private readonly traceabilityService: TraceabilityService,
   ) {}
 
   async execute(data: ReleaseInventoryDto) {
@@ -124,6 +127,12 @@ export class ReleaseService {
           'Inventory balance not found for the assigned warehouse and bin.',
         );
       }
+
+      await this.traceabilityService.validate(tx, {
+  inventoryItemId: inventoryItem.id,
+  batchId: balance.batchId,
+  serialId: balance.serialId,
+});
 
       if (
         balance.quantityReserved <
