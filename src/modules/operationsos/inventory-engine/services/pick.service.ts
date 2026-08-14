@@ -6,12 +6,14 @@ import {
 import { PrismaService } from '../../../../core/database/prisma.service';
 import { PickInventoryDto } from '../dto/pick-inventory.dto';
 import { MovementService } from './movement.service';
+import { TraceabilityService } from './traceability.service';
 
 @Injectable()
 export class PickService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly movementService: MovementService,
+    private readonly traceabilityService: TraceabilityService,
   ) {}
 
   async execute(data: PickInventoryDto) {
@@ -112,6 +114,12 @@ export class PickService {
           'Inventory balance not found for the selected warehouse and bin.',
         );
       }
+
+      await this.traceabilityService.validate(tx, {
+  inventoryItemId: inventory.id,
+  batchId: balance.batchId,
+  serialId: balance.serialId,
+});
 
       if (
         balance.quantityReserved < data.quantity
