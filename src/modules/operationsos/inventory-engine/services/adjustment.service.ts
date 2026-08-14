@@ -6,13 +6,15 @@ import {
 import { PrismaService } from '../../../../core/database/prisma.service';
 import { AdjustmentInventoryDto } from '../dto/adjustment-inventory.dto';
 import { MovementService } from './movement.service';
+import { TraceabilityService } from './traceability.service';
 
 @Injectable()
 export class AdjustmentService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly movementService: MovementService,
-  ) {}
+    private readonly traceabilityService: TraceabilityService,
+) {}
 
   async execute(data: AdjustmentInventoryDto) {
     return this.prisma.$transaction(async (tx) => {
@@ -74,6 +76,12 @@ export class AdjustmentService {
           serialId: data.serialId ?? null,
         },
       });
+
+      await this.traceabilityService.validate(tx, {
+         inventoryItemId: inventoryItem.id,
+         batchId: data.batchId,
+         serialId: data.serialId,
+       });
 
       if (data.adjustmentType === 'OUT' && !balance) {
         throw new NotFoundException(
