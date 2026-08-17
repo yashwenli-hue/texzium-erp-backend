@@ -1,43 +1,127 @@
-import { Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../../../core/database/prisma.service';
 import { CreateSpareConsumptionDto } from './dto/create-spare-consumption.dto';
+import { ConsumptionService } from '../inventory-engine/services/consumption.service';
 
 @Injectable()
 export class SpareConsumptionService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly consumptionService: ConsumptionService,
+  ) {}
 
   async create(data: CreateSpareConsumptionDto) {
-    const inventory = await this.prisma.inventoryItem.findUnique({
-      where: { id: data.inventoryItemId },
-    });
+    return this.prisma.$transaction(async (tx) => {
+      const engineerVisit = await tx.engineerVisit.findUnique({
+        where: {
+          id: data.engineerVisitId,
+        },
+      });
 
-    if (!inventory) {
-      throw new Error('Inventory item not found');
-    }
+      if (!engineerVisit) {
+        throw new NotFoundException(
+          'Engineer Visit not found.',
+        );
+      }
 
-    if (inventory.availableQty < data.quantityUsed) {
-      throw new Error('Insufficient stock');
-    }
+      if (data.quantityUsed <= 0) {
+        throw new BadRequestException(
+          'Quantity used must be greater than zero.',
+        );
+      }
 
-    const totalCost = data.quantityUsed * data.unitCost;
+      if (data.unitCost < 0) {
+        throw new BadRequestException(
+          'Unit cost cannot be negative.',
+        );
+      }
 
-    await this.prisma.inventoryItem.update({
-      where: { id: inventory.id },
-      data: {
-        stockQty: inventory.stockQty - data.quantityUsed,
-        availableQty: inventory.availableQty - data.quantityUsed,
-      },
-    });
+      /*
+       * Generate the Spare Consumption ID before inventory consumption.
+       *
+       * This ID becomes the canonical reference for:
+       * - InventoryTransaction
+       * - InventoryMovement
+       * - SpareConsumption
+       */
+      const spareConsumptionId = crypto.randomUUID();
 
-    return this.prisma.spareConsumption.create({
-      data: {
-        engineerVisitId: data.engineerVisitId,
-        inventoryItemId: data.inventoryItemId,
-        quantityUsed: data.quantityUsed,
-        unitCost: data.unitCost,
-        totalCost,
-        remarks: data.remarks,
-      },
+      const inventoryResult =
+        await this.consumptionService.consumeInventory(
+          tx,
+          {
+            inventoryItemId: data.inventoryItemId,
+
+            warehouseId: data.warehouseId,
+
+            warehouseBinId: data.warehouseBinId,
+
+            batchId: data.batchId,
+
+            serialId: data.serialId,
+
+            quantity: data.quantityUsed,
+
+            unitCost: data.unitCost,
+
+            referenceModule: 'SpareConsumption',
+
+            referenceId: spareConsumptionId,
+
+            remarks: data.remarks,
+          },
+        );
+
+      const totalCost =
+        data.quantityUsed * data.unitCost;
+
+      const spareConsumption =
+        await tx.spareConsumption.create({
+          data: {
+            id: spareConsumptionId,
+
+            engineerVisitId:
+              data.engineerVisitId,
+
+            inventoryItemId:
+              data.inventoryItemId,
+
+            warehouseId:
+              data.warehouseId,
+
+            warehouseBinId:
+              data.warehouseBinId,
+
+            batchId:
+              data.batchId,
+
+            serialId:
+              data.serialId,
+
+            quantityUsed:
+              data.quantityUsed,
+
+            unitCost:
+              data.unitCost,
+
+            totalCost,
+
+            remarks:
+              data.remarks,
+          },
+        });
+
+      return {
+        success: true,
+        message:
+          'Spare consumed successfully.',
+        spareConsumption,
+        inventory: inventoryResult,
+      };
     });
   }
 
@@ -46,6 +130,11 @@ export class SpareConsumptionService {
       include: {
         engineerVisit: true,
         inventoryItem: true,
+        warehouse: true,
+        warehouseBin: true,
+      },
+      orderBy: {
+        createdAt: 'desc',
       },
     });
   }

@@ -9,6 +9,7 @@ import { PickService } from './services/pick.service';
 import { PackService } from './services/pack.service';
 
 import { IssueService } from './services/issue.service';
+import { ConsumptionService } from './services/consumption.service';
 import { MovementService } from './services/movement.service';
 
 import { ReceiveService } from './services/receive.service';
@@ -28,6 +29,7 @@ import { TraceabilityService } from './services/traceability.service';
     InventoryEngineService,
     ReserveService,
     IssueService,
+    ConsumptionService,
     PickService,
     PackService,
     MovementService,
@@ -42,6 +44,7 @@ import { TraceabilityService } from './services/traceability.service';
     InventoryEngineService,
     ReserveService,
     IssueService,
+    ConsumptionService,
     PickService,
     PackService,
     MovementService,

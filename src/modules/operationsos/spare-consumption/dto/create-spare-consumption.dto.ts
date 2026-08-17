@@ -1,16 +1,39 @@
-import { IsNumber, IsOptional, IsString } from 'class-validator';
+import {
+  IsNumber,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Min,
+} from 'class-validator';
 
 export class CreateSpareConsumptionDto {
-  @IsString()
+  @IsUUID()
   engineerVisitId: string;
 
-  @IsString()
+  @IsUUID()
   inventoryItemId: string;
 
+  @IsUUID()
+  warehouseId: string;
+
+  @IsOptional()
+  @IsUUID()
+  warehouseBinId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  batchId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  serialId?: string;
+
   @IsNumber()
+  @Min(0.000001)
   quantityUsed: number;
 
   @IsNumber()
+  @Min(0)
   unitCost: number;
 
   @IsOptional()
