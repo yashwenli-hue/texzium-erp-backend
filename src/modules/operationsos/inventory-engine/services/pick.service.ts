@@ -145,14 +145,7 @@ export class PickService {
         inventory.reservedQty -
         data.quantity;
 
-      const newInventoryAvailableQty =
-        inventory.availableQty +
-        data.quantity;
-
-      if (
-        newInventoryReservedQty < 0 ||
-        newInventoryAvailableQty < 0
-      ) {
+      if (newInventoryReservedQty < 0) {
         throw new BadRequestException(
           'Picking would result in invalid aggregate inventory quantities.',
         );
@@ -178,8 +171,6 @@ export class PickService {
             reservedQty:
               newInventoryReservedQty,
 
-            availableQty:
-              newInventoryAvailableQty,
 
             updatedAt: new Date(),
           },
