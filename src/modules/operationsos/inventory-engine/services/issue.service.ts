@@ -158,16 +158,18 @@ export class IssueService {
       balance.quantityOnHand - data.quantity;
 
     /*
-     * Packed stock is no longer available inventory.
+     * Issue happens after:
      *
-     * quantityAvailable remains at zero when it is already zero.
-     * If a legacy balance still has available quantity, consume it
-     * proportionally but never allow it to become negative.
+     * RESERVE -> PICK -> PACK
+     *
+     * Therefore the issued quantity is already outside
+     * available inventory.
+     *
+     * Issue reduces physical on-hand stock only.
+     * quantityAvailable must remain unchanged.
      */
-    const updatedAvailable = Math.max(
-      0,
-      balance.quantityAvailable - data.quantity,
-    );
+    const updatedAvailable =
+      balance.quantityAvailable;
 
     if (updatedOnHand < 0) {
       throw new BadRequestException(
@@ -229,12 +231,9 @@ export class IssueService {
       inventory.stockQty - data.quantity;
 
     const updatedAvailableQty =
-      inventory.availableQty - data.quantity;
+      inventory.availableQty;
 
-    if (
-      updatedStockQty < 0 ||
-      updatedAvailableQty < 0
-    ) {
+    if (updatedStockQty < 0) {
       throw new BadRequestException(
         `Insufficient aggregate inventory for ${inventory.productName}.`,
       );
