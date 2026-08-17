@@ -756,17 +756,36 @@ model AMCVisit {
 }
 
 model SpareConsumption {
-  id              String   @id @default(uuid())
+  id String @id @default(uuid())
+
   engineerVisitId String
   inventoryItemId String
-  quantityUsed    Float
-  unitCost        Float
-  totalCost       Float
-  remarks         String?
-  createdAt       DateTime @default(now())
+
+  warehouseId    String
+  warehouseBinId String?
+
+  batchId  String?
+  serialId String?
+
+  quantityUsed Float
+  unitCost     Float
+  totalCost    Float
+
+  remarks String?
+
+  createdAt DateTime @default(now())
 
   engineerVisit EngineerVisit @relation(fields: [engineerVisitId], references: [id])
   inventoryItem InventoryItem @relation(fields: [inventoryItemId], references: [id])
+  warehouse     Warehouse     @relation(fields: [warehouseId], references: [id])
+  warehouseBin  WarehouseBin? @relation(fields: [warehouseBinId], references: [id])
+
+  @@index([engineerVisitId])
+  @@index([inventoryItemId])
+  @@index([warehouseId])
+  @@index([warehouseBinId])
+  @@index([batchId])
+  @@index([serialId])
 }
 
 model RMA {
@@ -1865,9 +1884,10 @@ model Warehouse {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  zones     WarehouseZone[]
-  balances  InventoryBalance[]
-  movements InventoryMovement[]
+  zones            WarehouseZone[]
+  balances         InventoryBalance[]
+  movements        InventoryMovement[]
+  SpareConsumption SpareConsumption[]
 }
 
 model WarehouseZone {
@@ -1915,8 +1935,9 @@ model WarehouseBin {
   warehouseRack WarehouseRack      @relation(fields: [warehouseRackId], references: [id])
   balances      InventoryBalance[]
 
-  movementsFrom InventoryMovement[] @relation("MovementFromBin")
-  movementsTo   InventoryMovement[] @relation("MovementToBin")
+  movementsFrom    InventoryMovement[] @relation("MovementFromBin")
+  movementsTo      InventoryMovement[] @relation("MovementToBin")
+  SpareConsumption SpareConsumption[]
 
   @@unique([warehouseRackId, code])
   @@index([warehouseRackId])
