@@ -7,6 +7,7 @@ import { PrismaService } from '../../../../core/database/prisma.service';
 import { PickInventoryDto } from '../dto/pick-inventory.dto';
 import { MovementService } from './movement.service';
 import { TraceabilityService } from './traceability.service';
+import { InventoryLockService } from './inventory-lock.service';
 
 @Injectable()
 export class PickService {
@@ -14,6 +15,7 @@ export class PickService {
     private readonly prisma: PrismaService,
     private readonly movementService: MovementService,
     private readonly traceabilityService: TraceabilityService,
+    private readonly inventoryLockService: InventoryLockService,
   ) {}
 
   async execute(data: PickInventoryDto) {
@@ -23,6 +25,35 @@ export class PickService {
           'Pick quantity must be greater than zero.',
         );
       }
+
+      const initialDispatchItem =
+        await tx.dispatchOrderItem.findUnique({
+          where: {
+            id: data.dispatchOrderItemId,
+          },
+        });
+
+      if (!initialDispatchItem) {
+        throw new NotFoundException(
+          'Dispatch Order Item not found.',
+        );
+      }
+
+      if (!initialDispatchItem.inventoryItemId) {
+        throw new BadRequestException(
+          'Dispatch Order Item is not linked to an Inventory Item.',
+        );
+      }
+
+      await this.inventoryLockService.lockInventoryItem(
+        tx,
+        initialDispatchItem.inventoryItemId,
+      );
+
+      await this.inventoryLockService.lockDispatchOrderItem(
+        tx,
+        data.dispatchOrderItemId,
+      );
 
       const dispatchItem =
         await tx.dispatchOrderItem.findUnique({
@@ -116,10 +147,10 @@ export class PickService {
       }
 
       await this.traceabilityService.validate(tx, {
-  inventoryItemId: inventory.id,
-  batchId: balance.batchId,
-  serialId: balance.serialId,
-});
+        inventoryItemId: inventory.id,
+        batchId: balance.batchId,
+        serialId: balance.serialId,
+      });
 
       if (
         balance.quantityReserved < data.quantity
@@ -170,7 +201,6 @@ export class PickService {
           data: {
             reservedQty:
               newInventoryReservedQty,
-
 
             updatedAt: new Date(),
           },
