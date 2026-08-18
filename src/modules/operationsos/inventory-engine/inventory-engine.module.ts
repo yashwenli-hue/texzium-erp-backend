@@ -20,6 +20,8 @@ import { AdjustmentService } from './services/adjustment.service';
 import { ReleaseService } from './services/release.service';
 import { TraceabilityService } from './services/traceability.service';
 
+import { InventoryLockService } from './services/inventory-lock.service';
+
 @Module({
   imports: [DatabaseModule],
 
@@ -38,6 +40,7 @@ import { TraceabilityService } from './services/traceability.service';
     AdjustmentService,
     ReleaseService,
     TraceabilityService,
+    InventoryLockService,
   ],
 
   exports: [
@@ -53,6 +56,7 @@ import { TraceabilityService } from './services/traceability.service';
     AdjustmentService,
     ReleaseService,  
     TraceabilityService,
+    InventoryLockService,
 ],
 })
 export class InventoryEngineModule {}

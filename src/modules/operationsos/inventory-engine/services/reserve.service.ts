@@ -7,6 +7,7 @@ import { PrismaService } from '../../../../core/database/prisma.service';
 import { ReserveInventoryDto } from '../dto/reserve-inventory.dto';
 import { MovementService } from './movement.service';
 import { TraceabilityService } from './traceability.service';
+import { InventoryLockService } from './inventory-lock.service';
 
 @Injectable()
 export class ReserveService {
@@ -14,6 +15,7 @@ export class ReserveService {
     private readonly prisma: PrismaService,
     private readonly movementService: MovementService,
     private readonly traceabilityService: TraceabilityService,
+    private readonly inventoryLockService: InventoryLockService,
   ) {}
 
   async execute(data: ReserveInventoryDto) {
@@ -29,6 +31,11 @@ export class ReserveService {
           'Warehouse is required for inventory reservation.',
         );
       }
+
+      await this.inventoryLockService.lockInventoryItem(
+        tx,
+        data.inventoryItemId,
+      );
 
       const inventoryItem =
         await tx.inventoryItem.findUnique({
