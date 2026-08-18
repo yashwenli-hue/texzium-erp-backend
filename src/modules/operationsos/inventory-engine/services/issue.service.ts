@@ -8,13 +8,15 @@ import { PrismaService } from '../../../../core/database/prisma.service';
 import { IssueStockInput } from '../interfaces/issue-stock.interface';
 import { MovementService } from './movement.service';
 import { TraceabilityService } from './traceability.service';
+import { InventoryLockService } from './inventory-lock.service';
 
 @Injectable()
 export class IssueService {
   constructor(
-    private readonly prisma: PrismaService,
-    private readonly movementService: MovementService,
-    private readonly traceabilityService: TraceabilityService,
+  private readonly prisma: PrismaService,
+  private readonly movementService: MovementService,
+  private readonly traceabilityService: TraceabilityService,
+  private readonly inventoryLockService: InventoryLockService,
   ) {}
 
   async issueStock(
@@ -42,6 +44,13 @@ export class IssueService {
     if (!data.warehouseId) {
       throw new BadRequestException(
         'Warehouse is required for stock issue.',
+      );
+    }
+
+    if (data.dispatchOrderItemId) {
+      await this.inventoryLockService.lockDispatchOrderItem(
+        tx,
+        data.dispatchOrderItemId,
       );
     }
 
