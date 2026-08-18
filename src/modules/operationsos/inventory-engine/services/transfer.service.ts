@@ -7,6 +7,7 @@ import { PrismaService } from '../../../../core/database/prisma.service';
 import { TransferInventoryDto } from '../dto/transfer-inventory.dto';
 import { MovementService } from './movement.service';
 import { TraceabilityService } from './traceability.service';
+import { InventoryLockService } from './inventory-lock.service';
 
 @Injectable()
 export class TransferService {
@@ -14,6 +15,7 @@ export class TransferService {
     private readonly prisma: PrismaService,
     private readonly movementService: MovementService,
     private readonly traceabilityService: TraceabilityService,
+    private readonly inventoryLockService: InventoryLockService,
   ) {}
 
   async execute(data: TransferInventoryDto) {
@@ -32,6 +34,12 @@ export class TransferService {
           'Source and destination cannot be the same location.',
         );
       }
+
+      await this.inventoryLockService.lockInventoryItem(
+        tx,
+        data.inventoryItemId,
+      );
+
 
       const inventoryItem = await tx.inventoryItem.findUnique({
         where: {
