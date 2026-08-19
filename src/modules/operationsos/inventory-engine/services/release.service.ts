@@ -7,6 +7,7 @@ import { PrismaService } from '../../../../core/database/prisma.service';
 import { ReleaseInventoryDto } from '../dto/release-inventory.dto';
 import { MovementService } from './movement.service';
 import { TraceabilityService } from './traceability.service';
+import { InventoryLockService } from './inventory-lock.service';
 
 
 @Injectable()
@@ -15,6 +16,7 @@ export class ReleaseService {
     private readonly prisma: PrismaService,
     private readonly movementService: MovementService,
     private readonly traceabilityService: TraceabilityService,
+    private readonly inventoryLockService: InventoryLockService,
   ) {}
 
   async execute(data: ReleaseInventoryDto) {
@@ -24,6 +26,16 @@ export class ReleaseService {
           'Release quantity must be greater than zero.',
         );
       }
+
+      await this.inventoryLockService.lockInventoryItem(
+        tx,
+        data.inventoryItemId,
+      );
+
+      await this.inventoryLockService.lockDispatchOrderItem(
+        tx,
+        data.dispatchOrderItemId,
+      );
 
       const inventoryItem =
         await tx.inventoryItem.findUnique({
