@@ -7,6 +7,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../core/database/prisma.service';
 import { MovementService } from './movement.service';
 import { TraceabilityService } from './traceability.service';
+import { InventoryLockService } from './inventory-lock.service';
 
 export interface ConsumeInventoryInput {
   inventoryItemId: string;
@@ -28,6 +29,7 @@ export class ConsumptionService {
     private readonly prisma: PrismaService,
     private readonly movementService: MovementService,
     private readonly traceabilityService: TraceabilityService,
+    private readonly inventoryLockService: InventoryLockService,
   ) {}
 
   async consumeInventory(
@@ -51,6 +53,11 @@ export class ConsumptionService {
         'Warehouse is required for inventory consumption.',
       );
     }
+
+    await this.inventoryLockService.lockInventoryItem(
+      tx,
+      data.inventoryItemId,
+    );
 
     const inventoryItem = await tx.inventoryItem.findUnique({
       where: {
