@@ -7,6 +7,7 @@ import { PrismaService } from '../../../../core/database/prisma.service';
 import { AdjustmentInventoryDto } from '../dto/adjustment-inventory.dto';
 import { MovementService } from './movement.service';
 import { TraceabilityService } from './traceability.service';
+import { InventoryLockService } from './inventory-lock.service';
 
 @Injectable()
 export class AdjustmentService {
@@ -14,7 +15,8 @@ export class AdjustmentService {
     private readonly prisma: PrismaService,
     private readonly movementService: MovementService,
     private readonly traceabilityService: TraceabilityService,
-) {}
+    private readonly inventoryLockService: InventoryLockService,
+  ) {}
 
   async execute(data: AdjustmentInventoryDto) {
     return this.prisma.$transaction(async (tx) => {
@@ -23,6 +25,11 @@ export class AdjustmentService {
           'Adjustment quantity must be greater than zero.',
         );
       }
+
+      await this.inventoryLockService.lockInventoryItem(
+        tx,
+        data.inventoryItemId,
+      );
 
       const inventoryItem = await tx.inventoryItem.findUnique({
         where: {
