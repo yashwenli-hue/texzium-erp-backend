@@ -60,4 +60,23 @@ export class InventoryLockService {
       );
     }
   }
+
+  async lockGoodsReceipt(
+    tx: Prisma.TransactionClient,
+    goodsReceiptId: string,
+  ): Promise<void> {
+    const rows = await tx.$queryRaw<Array<{ id: string }>>`
+      SELECT "id"
+      FROM "GoodsReceipt"
+      WHERE "id" = ${goodsReceiptId}
+      FOR UPDATE
+    `;
+
+    if (rows.length === 0) {
+      throw new NotFoundException(
+        'Goods Receipt not found.',
+      );
+    }
+  }
+
 }

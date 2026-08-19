@@ -7,6 +7,7 @@ import { PrismaService } from '../../../../core/database/prisma.service';
 import { ReceiveInventoryDto } from '../dto/receive-inventory.dto';
 import { MovementService } from './movement.service';
 import { TraceabilityService } from './traceability.service';
+import { InventoryLockService } from './inventory-lock.service';
 
 @Injectable()
 export class ReceiveService {
@@ -14,10 +15,16 @@ export class ReceiveService {
     private readonly prisma: PrismaService,
     private readonly movementService: MovementService,
     private readonly traceabilityService: TraceabilityService,
+    private readonly inventoryLockService: InventoryLockService,
   ) {}
 
   async execute(data: ReceiveInventoryDto) {
     return this.prisma.$transaction(async (tx) => {
+      await this.inventoryLockService.lockGoodsReceipt(
+        tx,
+        data.goodsReceiptId,
+      );
+
       const goodsReceipt = await tx.goodsReceipt.findUnique({
         where: {
           id: data.goodsReceiptId,
@@ -91,6 +98,11 @@ export class ReceiveService {
           'Inventory Item linked to Goods Receipt was not found.',
         );
       }
+
+      await this.inventoryLockService.lockInventoryItem(
+        tx,
+        inventoryItem.id,
+      );
 
       await this.traceabilityService.validate(tx, {
         inventoryItemId: inventoryItem.id,
