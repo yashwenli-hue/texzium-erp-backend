@@ -29,6 +29,11 @@ export class IssueService {
       );
     }
 
+    await this.inventoryLockService.lockInventoryItem(
+      tx,
+      data.inventoryItemId,
+    );
+
     const inventory = await tx.inventoryItem.findUnique({
       where: {
         id: data.inventoryItemId,

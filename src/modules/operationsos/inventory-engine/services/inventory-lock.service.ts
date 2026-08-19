@@ -42,4 +42,22 @@ export class InventoryLockService {
       );
     }
   }
+
+  async lockDispatchOrder(
+    tx: Prisma.TransactionClient,
+    dispatchOrderId: string,
+  ): Promise<void> {
+    const rows = await tx.$queryRaw<Array<{ id: string }>>`
+      SELECT "id"
+      FROM "DispatchOrder"
+      WHERE "id" = ${dispatchOrderId}
+      FOR UPDATE
+    `;
+
+    if (rows.length === 0) {
+      throw new NotFoundException(
+        'Dispatch Order not found.',
+      );
+    }
+  }
 }
