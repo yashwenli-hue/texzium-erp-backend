@@ -77,6 +77,26 @@ export class ReserveService {
        * Otherwise inherit the bin location already assigned to
        * the Dispatch Order Item.
        */
+
+      const remainingReservationQty =
+        dispatchItem.quantity -
+        dispatchItem.reservedQty -
+        dispatchItem.pickedQty -
+        dispatchItem.packedQty -
+        dispatchItem.dispatchedQty;
+
+      if (remainingReservationQty <= 0) {
+        throw new BadRequestException(
+          'Dispatch Order Item has no remaining quantity available for reservation.',
+        );
+      }
+
+      if (data.quantity > remainingReservationQty) {
+        throw new BadRequestException(
+          `Reservation quantity exceeds the remaining Dispatch Order Item quantity. Remaining quantity: ${remainingReservationQty}.`,
+        );
+      }
+
       const effectiveBinLocation =
         data.binLocation ??
         dispatchItem.binLocation ??
