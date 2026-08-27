@@ -58,9 +58,10 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  auditLogs     AuditLog[]
-  notifications Notification[]
-  assignedLeads Lead[]
+  auditLogs          AuditLog[]
+  notifications      Notification[]
+  assignedLeads      Lead[]
+  completedFollowups LeadFollowup[] @relation("LeadFollowupCompletedBy")
 }
 
 model Role {
@@ -251,6 +252,12 @@ model LeadTimeline {
   createdAt DateTime @default(now())
 }
 
+enum LeadFollowupStatus {
+  PENDING
+  COMPLETED
+  CANCELLED
+}
+
 model LeadFollowup {
   id String @id @default(uuid())
 
@@ -260,7 +267,14 @@ model LeadFollowup {
   followupDate DateTime
   remarks      String?
 
+  status        LeadFollowupStatus @default(PENDING)
+  completedAt   DateTime?
+  completedById String?
+
+  completedBy User? @relation("LeadFollowupCompletedBy", fields: [completedById], references: [id])
+
   createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 enum ConnectorType {

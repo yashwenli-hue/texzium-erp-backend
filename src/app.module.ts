@@ -22,6 +22,7 @@ import { RolesModule } from './modules/adminos/roles/roles.module';
 import { PermissionsModule } from './modules/adminos/permissions/permissions.module';
 import { RolePermissionsModule } from './modules/adminos/role-permissions/role-permissions.module';
 import { LeadSourcesModule } from './modules/revenueos/lead-sources/lead-sources.module';
+import { LeadsModule } from './modules/revenueos/leads/leads.module';
 import { IntegrationHubModule } from './modules/adminos/integration-hub/integration-hub.module';
 import { ConnectorMappingsModule } from './modules/adminos/connector-mappings/connector-mappings.module';
 import { WebhooksModule } from './modules/adminos/webhooks/webhooks.module';
@@ -150,6 +151,7 @@ import { DocumentNumberSeriesModule } from './modules/adminos/document-number-se
     PermissionsModule,
     RolePermissionsModule,
     LeadSourcesModule,
+    LeadsModule,
     IntegrationHubModule,
     ConnectorMappingsModule,
     WebhooksModule,
