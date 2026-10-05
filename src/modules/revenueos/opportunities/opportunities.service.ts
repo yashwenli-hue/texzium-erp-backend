@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../../core/database/prisma.service';
 import { CreateOpportunityDto } from './dto/create-opportunity.dto';
+import { LEAD_HISTORY_INCLUDE } from '../leads/lead-history.include';
 
 @Injectable()
 export class OpportunitiesService {
@@ -49,12 +50,7 @@ export class OpportunitiesService {
                 fullName: true,
               },
             },
-            notes: true,
-            timelines: {
-              orderBy: {
-                createdAt: 'desc',
-              },
-            },
+            ...LEAD_HISTORY_INCLUDE,
             followups: {
               orderBy: {
                 followupDate: 'asc',

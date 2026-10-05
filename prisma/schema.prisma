@@ -62,6 +62,7 @@ model User {
   notifications      Notification[]
   assignedLeads      Lead[]
   completedFollowups LeadFollowup[] @relation("LeadFollowupCompletedBy")
+  leadActivities     LeadTimeline[] @relation("LeadTimelineActor")
 }
 
 model Role {
@@ -240,6 +241,25 @@ model LeadNote {
   createdAt DateTime @default(now())
 }
 
+// SYSTEM rows are lifecycle events written by trusted backend workflows
+// (action = LEAD_CREATED, PRE_SALES_ASSIGNED, FOLLOWUP_COMPLETED, ...).
+// EMPLOYEE rows are sales work logged by a user (action = ACTIVITY_<type>);
+// they always carry activityType and actorId, set server-side only.
+enum LeadTimelineSource {
+  SYSTEM
+  EMPLOYEE
+}
+
+enum LeadActivityType {
+  NOTE
+  CALL
+  MEETING
+  EMAIL
+  WHATSAPP
+  REQUIREMENT
+  OTHER
+}
+
 model LeadTimeline {
   id String @id @default(uuid())
 
@@ -249,7 +269,17 @@ model LeadTimeline {
   action  String
   remarks String?
 
-  createdAt DateTime @default(now())
+  source       LeadTimelineSource @default(SYSTEM)
+  activityType LeadActivityType?
+  actorId      String?
+  actor        User?              @relation("LeadTimelineActor", fields: [actorId], references: [id])
+
+  // When the event happened; createdAt is when the row was recorded.
+  occurredAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+
+  @@index([leadId, occurredAt])
+  @@index([actorId])
 }
 
 enum LeadFollowupStatus {

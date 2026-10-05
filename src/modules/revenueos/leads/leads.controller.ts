@@ -5,6 +5,7 @@ import {
   Param,
   Patch,
   Post,
+  Req,
   UseGuards,
 } from '@nestjs/common';
 
@@ -12,6 +13,7 @@ import { LeadsService } from './leads.service';
 
 import { CreateLeadDto } from './dto/create-lead.dto';
 import { UpdateLeadDto } from './dto/update-lead.dto';
+import { CreateLeadActivityDto } from './dto/create-lead-activity.dto';
 
 import { JwtAuthGuard } from '../../../core/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../../core/guards/permissions.guard';
@@ -40,6 +42,20 @@ export class LeadsController {
   @Permissions('leads.view')
   findOne(@Param('id') id: string) {
     return this.leadsService.findOne(id);
+  }
+
+  @Post(':id/activities')
+  @Permissions('leads.edit')
+  createActivity(
+    @Param('id') id: string,
+    @Body() body: CreateLeadActivityDto,
+    @Req() req: { user?: { id?: string } },
+  ) {
+    return this.leadsService.createActivity(
+      id,
+      req.user?.id,
+      body,
+    );
   }
 
   @Patch(':id')
