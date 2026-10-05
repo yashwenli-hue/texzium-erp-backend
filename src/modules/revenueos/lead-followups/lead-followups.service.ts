@@ -6,21 +6,18 @@ import {
 
 import { PrismaService } from '../../../core/database/prisma.service';
 import { CreateFollowupDto } from './dto/create-followup.dto';
+import { lockActiveLeadForWrite } from '../leads/lead-lifecycle';
 
 @Injectable()
 export class LeadFollowupsService {
   constructor(private prisma: PrismaService) {}
 
   async create(data: CreateFollowupDto) {
-    const lead = await this.prisma.lead.findUnique({
-      where: { id: data.leadId },
-    });
-
-    if (!lead) {
-      throw new NotFoundException('Lead not found');
-    }
-
     return this.prisma.$transaction(async (tx) => {
+      // A pending follow-up blocks deactivation, so it must not be created
+      // while the lead is being deactivated (and vice versa).
+      await lockActiveLeadForWrite(tx, data.leadId, 'Lead not found');
+
       const followup = await tx.leadFollowup.create({
         data: {
           leadId: data.leadId,

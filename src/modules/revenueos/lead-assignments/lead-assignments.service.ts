@@ -1,12 +1,15 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../core/database/prisma.service';
 import { AssignLeadDto } from './dto/assign-lead.dto';
+import { assertLeadActive } from '../leads/lead-lifecycle';
 
 @Injectable()
 export class LeadAssignmentsService {
   constructor(private prisma: PrismaService) {}
 
   async assign(data: AssignLeadDto) {
+    await assertLeadActive(this.prisma, data.leadId);
+
     const lead = await this.prisma.lead.update({
       where: { id: data.leadId },
       data: {
@@ -30,6 +33,8 @@ export class LeadAssignmentsService {
     leadId: string,
     salesUserId: string,
   ) {
+    await assertLeadActive(this.prisma, leadId);
+
     const lead = await this.prisma.lead.update({
       where: { id: leadId },
       data: {
@@ -53,6 +58,8 @@ export class LeadAssignmentsService {
     leadId: string,
     reason: string,
   ) {
+    await assertLeadActive(this.prisma, leadId);
+
     const lead = await this.prisma.lead.update({
       where: { id: leadId },
       data: {

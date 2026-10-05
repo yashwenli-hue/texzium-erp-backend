@@ -25,7 +25,7 @@ describe('Lead activity (attributed employee history on LeadTimeline)', () => {
       findUnique: jest.fn(async (args: any) => {
         if (args.include) lastFindOneArgs = args;
         return args.where.id === 'lead1'
-          ? { id: 'lead1', timelines: [], notes: [] }
+          ? { id: 'lead1', isActive: true, timelines: [], notes: [] }
           : null;
       }),
       update: jest.fn(async (args: any) => {

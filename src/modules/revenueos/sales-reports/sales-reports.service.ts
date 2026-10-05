@@ -7,7 +7,9 @@ export class SalesReportsService {
 
   async funnel() {
     const leads =
-      await this.prisma.lead.count();
+      await this.prisma.lead.count({
+        where: { isActive: true },
+      });
 
     const opportunities =
       await this.prisma.opportunity.count();
@@ -75,7 +77,9 @@ export class SalesReportsService {
   
   async leadConversion() {
   const leads =
-    await this.prisma.lead.count();
+    await this.prisma.lead.count({
+      where: { isActive: true },
+    });
 
   const opportunities =
     await this.prisma.opportunity.count();

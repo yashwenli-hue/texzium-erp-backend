@@ -63,6 +63,7 @@ model User {
   assignedLeads      Lead[]
   completedFollowups LeadFollowup[] @relation("LeadFollowupCompletedBy")
   leadActivities     LeadTimeline[] @relation("LeadTimelineActor")
+  deactivatedLeads   Lead[]         @relation("LeadDeactivatedBy")
 }
 
 model Role {
@@ -221,6 +222,16 @@ model Lead {
 
   status LeadStatus @default(NEW)
 
+  // Soft lifecycle. An inactive lead is hidden from normal lists and takes no
+  // sales writes. The deactivated* fields describe the CURRENT deactivation and
+  // are cleared on reactivation; the permanent history is in LeadTimeline
+  // (LEAD_DEACTIVATED / LEAD_REACTIVATED).
+  isActive           Boolean   @default(true)
+  deactivatedAt      DateTime?
+  deactivatedById    String?
+  deactivatedBy      User?     @relation("LeadDeactivatedBy", fields: [deactivatedById], references: [id])
+  deactivationReason String?
+
   notes     LeadNote[]
   timelines LeadTimeline[]
   followups LeadFollowup[]
@@ -228,6 +239,8 @@ model Lead {
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
   opportunities Opportunity[]
+
+  @@index([deactivatedById])
 }
 
 model LeadNote {
@@ -242,7 +255,9 @@ model LeadNote {
 }
 
 // SYSTEM rows are lifecycle events written by trusted backend workflows
-// (action = LEAD_CREATED, PRE_SALES_ASSIGNED, FOLLOWUP_COMPLETED, ...).
+// (action = LEAD_CREATED, PRE_SALES_ASSIGNED, FOLLOWUP_COMPLETED, ...). A
+// lifecycle event performed by a signed-in user (LEAD_DEACTIVATED,
+// LEAD_REACTIVATED) is still SYSTEM, with actorId set to that user.
 // EMPLOYEE rows are sales work logged by a user (action = ACTIVITY_<type>);
 // they always carry activityType and actorId, set server-side only.
 enum LeadTimelineSource {

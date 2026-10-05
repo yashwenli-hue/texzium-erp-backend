@@ -5,6 +5,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -14,6 +15,8 @@ import { LeadsService } from './leads.service';
 import { CreateLeadDto } from './dto/create-lead.dto';
 import { UpdateLeadDto } from './dto/update-lead.dto';
 import { CreateLeadActivityDto } from './dto/create-lead-activity.dto';
+import { DeactivateLeadDto } from './dto/deactivate-lead.dto';
+import { ListLeadsQueryDto } from './dto/list-leads-query.dto';
 
 import { JwtAuthGuard } from '../../../core/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../../core/guards/permissions.guard';
@@ -34,8 +37,8 @@ export class LeadsController {
 
   @Get()
   @Permissions('leads.view')
-  findAll() {
-    return this.leadsService.findAll();
+  findAll(@Query() query: ListLeadsQueryDto) {
+    return this.leadsService.findAll(query.includeInactive);
   }
 
   @Get(':id')
@@ -56,6 +59,31 @@ export class LeadsController {
       req.user?.id,
       body,
     );
+  }
+
+  // Takes a lead out of active work (reason required). One permission covers
+  // both deactivating and reactivating.
+  @Patch(':id/deactivate')
+  @Permissions('leads.deactivate')
+  deactivate(
+    @Param('id') id: string,
+    @Body() body: DeactivateLeadDto,
+    @Req() req: { user?: { id?: string } },
+  ) {
+    return this.leadsService.deactivate(
+      id,
+      req.user?.id,
+      body.reason,
+    );
+  }
+
+  @Patch(':id/reactivate')
+  @Permissions('leads.deactivate')
+  reactivate(
+    @Param('id') id: string,
+    @Req() req: { user?: { id?: string } },
+  ) {
+    return this.leadsService.reactivate(id, req.user?.id);
   }
 
   @Patch(':id')

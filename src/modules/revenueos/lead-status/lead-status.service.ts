@@ -1,12 +1,15 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../core/database/prisma.service';
 import { UpdateLeadStatusDto } from './dto/update-lead-status.dto';
+import { assertLeadActive } from '../leads/lead-lifecycle';
 
 @Injectable()
 export class LeadStatusService {
   constructor(private prisma: PrismaService) {}
 
   async update(data: UpdateLeadStatusDto) {
+    await assertLeadActive(this.prisma, data.leadId);
+
     const lead = await this.prisma.lead.update({
       where: { id: data.leadId },
       data: {

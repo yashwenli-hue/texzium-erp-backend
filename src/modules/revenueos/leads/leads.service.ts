@@ -1,11 +1,12 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
 
-import { LeadTimelineSource } from '@prisma/client';
+import { LeadFollowupStatus, LeadTimelineSource, Prisma } from '@prisma/client';
 
 import { PrismaService } from '../../../core/database/prisma.service';
 
@@ -16,6 +17,11 @@ import {
   LEAD_ACTOR_SELECT,
   LEAD_HISTORY_INCLUDE,
 } from './lead-history.include';
+import {
+  LEAD_DEACTIVATED_MESSAGE,
+  LEAD_LIFECYCLE_INCLUDE,
+  lockLeadForDeactivation,
+} from './lead-lifecycle';
 
 // Tolerance for client/server clock skew when rejecting future-dated activity.
 const OCCURRED_AT_FUTURE_TOLERANCE_MS = 5 * 60 * 1000;
@@ -67,8 +73,9 @@ export class LeadsService {
     return lead;
   }
 
-  async findAll() {
+  async findAll(includeInactive = false) {
     return this.prisma.lead.findMany({
+      where: includeInactive ? undefined : { isActive: true },
       include: {
         source: true,
         assignedTo: true,
@@ -90,6 +97,7 @@ export class LeadsService {
         include: {
           source: true,
           assignedTo: true,
+          deactivatedBy: { select: LEAD_ACTOR_SELECT },
           ...LEAD_HISTORY_INCLUDE,
           followups: {
             orderBy: {
@@ -125,11 +133,15 @@ export class LeadsService {
 
     const lead = await this.prisma.lead.findUnique({
       where: { id: leadId },
-      select: { id: true },
+      select: { id: true, isActive: true },
     });
 
     if (!lead) {
       throw new NotFoundException('Lead not found.');
+    }
+
+    if (!lead.isActive) {
+      throw new ConflictException(LEAD_DEACTIVATED_MESSAGE);
     }
 
     const actor = await this.prisma.user.findUnique({
@@ -195,6 +207,10 @@ export class LeadsService {
       );
     }
 
+    if (!existing.isActive) {
+      throw new ConflictException(LEAD_DEACTIVATED_MESSAGE);
+    }
+
     if (data.sourceId) {
       const source =
         await this.prisma.leadSource.findUnique({
@@ -231,5 +247,180 @@ export class LeadsService {
     });
 
     return lead;
+  }
+
+  // Takes a lead out of active work without deleting anything. The conditional
+  // update only matches an active lead with no opportunities and no pending
+  // follow-ups, so the rules hold even if something is created at the same
+  // moment. Follow-ups and opportunities are never touched.
+  async deactivate(
+    id: string,
+    actorId: string | undefined,
+    reason: string,
+  ) {
+    await this.requireActor(actorId);
+
+    return this.prisma.$transaction(async (tx) => {
+      const now = new Date();
+
+      // Wait for any opportunity or follow-up being created for this lead to
+      // finish, so the checks below see it.
+      await lockLeadForDeactivation(tx, id);
+
+      const result = await tx.lead.updateMany({
+        where: {
+          id,
+          isActive: true,
+          opportunities: { none: {} },
+          followups: { none: { status: LeadFollowupStatus.PENDING } },
+        },
+        data: {
+          isActive: false,
+          deactivatedAt: now,
+          deactivatedById: actorId,
+          deactivationReason: reason,
+        },
+      });
+
+      if (result.count === 0) {
+        await this.explainDeactivationConflict(tx, id);
+      }
+
+      // A lifecycle event performed by a person: still SYSTEM history, with the
+      // actor recorded. It is not an employee activity.
+      await tx.leadTimeline.create({
+        data: {
+          leadId: id,
+          action: 'LEAD_DEACTIVATED',
+          remarks: reason,
+          actorId,
+          occurredAt: now,
+        },
+      });
+
+      return tx.lead.findUnique({
+        where: { id },
+        include: LEAD_LIFECYCLE_INCLUDE,
+      });
+    });
+  }
+
+  // Simply restores the lead to active. Opportunities and follow-ups are left
+  // exactly as they are; the permanent history stays in the timeline.
+  async reactivate(id: string, actorId: string | undefined) {
+    await this.requireActor(actorId);
+
+    return this.prisma.$transaction(async (tx) => {
+      const now = new Date();
+
+      const result = await tx.lead.updateMany({
+        where: { id, isActive: false },
+        data: {
+          isActive: true,
+          deactivatedAt: null,
+          deactivatedById: null,
+          deactivationReason: null,
+        },
+      });
+
+      if (result.count === 0) {
+        const lead = await tx.lead.findUnique({
+          where: { id },
+          select: { id: true },
+        });
+
+        if (!lead) {
+          throw new NotFoundException('Lead not found.');
+        }
+
+        throw new ConflictException('This lead is already active.');
+      }
+
+      await tx.leadTimeline.create({
+        data: {
+          leadId: id,
+          action: 'LEAD_REACTIVATED',
+          remarks: 'Lead reactivated.',
+          actorId,
+          occurredAt: now,
+        },
+      });
+
+      return tx.lead.findUnique({
+        where: { id },
+        include: LEAD_LIFECYCLE_INCLUDE,
+      });
+    });
+  }
+
+  private async requireActor(actorId: string | undefined) {
+    if (!actorId) {
+      throw new UnauthorizedException('Authenticated user required.');
+    }
+
+    const actor = await this.prisma.user.findUnique({
+      where: { id: actorId },
+      select: { id: true },
+    });
+
+    if (!actor) {
+      throw new UnauthorizedException('Authenticated user not found.');
+    }
+  }
+
+  // Runs only after the conditional update matched nothing: works out why, so
+  // the message names the real blockers. Always throws.
+  private async explainDeactivationConflict(
+    tx: Prisma.TransactionClient,
+    id: string,
+  ): Promise<never> {
+    const lead = await tx.lead.findUnique({
+      where: { id },
+      select: {
+        isActive: true,
+        _count: {
+          select: {
+            opportunities: true,
+            followups: {
+              where: { status: LeadFollowupStatus.PENDING },
+            },
+          },
+        },
+      },
+    });
+
+    if (!lead) {
+      throw new NotFoundException('Lead not found.');
+    }
+
+    if (!lead.isActive) {
+      throw new ConflictException('This lead is already deactivated.');
+    }
+
+    const blockers: string[] = [];
+    const opportunities = lead._count.opportunities;
+    const pendingFollowups = lead._count.followups;
+
+    if (opportunities > 0) {
+      blockers.push(
+        `${opportunities} ${opportunities === 1 ? 'opportunity' : 'opportunities'}`,
+      );
+    }
+
+    if (pendingFollowups > 0) {
+      blockers.push(
+        `${pendingFollowups} pending ${pendingFollowups === 1 ? 'follow-up' : 'follow-ups'}`,
+      );
+    }
+
+    if (blockers.length === 0) {
+      throw new ConflictException(
+        'This lead could not be deactivated. Please try again.',
+      );
+    }
+
+    throw new ConflictException(
+      `This lead can't be deactivated while it has ${blockers.join(' and ')}.`,
+    );
   }
 }
