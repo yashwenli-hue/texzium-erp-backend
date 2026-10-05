@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Param,
   Post,
   UseGuards,
 } from '@nestjs/common';
@@ -30,5 +31,11 @@ export class OpportunitiesController {
   @Permissions('opportunities.view')
   findAll() {
     return this.opportunitiesService.findAll();
+  }
+
+  @Get(':id')
+  @Permissions('opportunities.view')
+  findOne(@Param('id') id: string) {
+    return this.opportunitiesService.findOne(id);
   }
 }

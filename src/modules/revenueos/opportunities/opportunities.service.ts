@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../../core/database/prisma.service';
 import { CreateOpportunityDto } from './dto/create-opportunity.dto';
 
@@ -34,5 +34,41 @@ export class OpportunitiesService {
         lead: true,
       },
     });
+  }
+
+  async findOne(id: string) {
+    const opportunity = await this.prisma.opportunity.findUnique({
+      where: { id },
+      include: {
+        lead: {
+          include: {
+            source: true,
+            assignedTo: {
+              select: {
+                id: true,
+                fullName: true,
+              },
+            },
+            notes: true,
+            timelines: {
+              orderBy: {
+                createdAt: 'desc',
+              },
+            },
+            followups: {
+              orderBy: {
+                followupDate: 'asc',
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!opportunity) {
+      throw new NotFoundException('Opportunity not found.');
+    }
+
+    return opportunity;
   }
 }
