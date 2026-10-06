@@ -4,14 +4,18 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import { CreateAccountsCommercialApprovalDto } from '../accounts-commercial-approval/dto/create-accounts-commercial-approval.dto';
+import { RetractAccountsCommercialApprovalDto } from '../accounts-commercial-approval/dto/retract-accounts-commercial-approval.dto';
 import { CreateSalesOrderAdvanceReceiptDto } from '../sales-order-advance-receipt/dto/create-sales-order-advance-receipt.dto';
+import { RetractSalesOrderAdvanceReceiptVerificationDto } from '../sales-order-advance-receipt/dto/retract-sales-order-advance-receipt-verification.dto';
 import { VerifySalesOrderAdvanceReceiptDto } from '../sales-order-advance-receipt/dto/verify-sales-order-advance-receipt.dto';
 import { CreateSalesOrderPaymentTermDto } from '../sales-order-payment-terms/dto/create-sales-order-payment-term.dto';
+import { CancelSalesOrderDto } from './dto/cancel-sales-order.dto';
 import { CreateSalesOrderDto } from './dto/create-sales-order.dto';
 import {
   ADVANCE_RECEIPT_VERIFICATION_OUTCOMES,
   SALES_ORDER_PAYMENT_MODES,
   SALES_ORDER_PAYMENT_TYPES,
+  SALES_ORDER_REASON_MAX_LENGTH,
   SALES_ORDER_REFERENCE_MAX_LENGTH,
   SALES_ORDER_REMARKS_MAX_LENGTH,
 } from './sales-order-values';
@@ -330,6 +334,72 @@ describe('Sales Order DTO validation (the global ValidationPipe, as in main.ts)'
     });
   });
 
+  describe.each([
+    ['CancelSalesOrderDto', CancelSalesOrderDto],
+    [
+      'RetractSalesOrderAdvanceReceiptVerificationDto',
+      RetractSalesOrderAdvanceReceiptVerificationDto,
+    ],
+    [
+      'RetractAccountsCommercialApprovalDto',
+      RetractAccountsCommercialApprovalDto,
+    ],
+  ] as Array<[string, new () => object]>)(
+    '%s: the mandatory reason',
+    (_name, Dto) => {
+      it('accepts a reason and trims it', async () => {
+        await expect(
+          run(Dto, { reason: 'Customer withdrew' }),
+        ).resolves.toMatchObject({ reason: 'Customer withdrew' });
+        await expect(
+          run(Dto, { reason: '   padded on both sides \n' }),
+        ).resolves.toMatchObject({ reason: 'padded on both sides' });
+      });
+
+      it('accepts 1 character and exactly the maximum, counted after trimming', async () => {
+        expect(SALES_ORDER_REASON_MAX_LENGTH).toBe(500);
+        await expect(run(Dto, { reason: 'x' })).resolves.toBeDefined();
+        await expect(
+          run(Dto, { reason: 'x'.repeat(500) }),
+        ).resolves.toBeDefined();
+        await expect(
+          run(Dto, { reason: `  ${'x'.repeat(500)}  ` }),
+        ).resolves.toMatchObject({ reason: 'x'.repeat(500) });
+      });
+
+      it.each([
+        ['missing', {}],
+        ['null', { reason: null }],
+        ['empty', { reason: '' }],
+        ['only spaces', { reason: '     ' }],
+        ['only a tab and a newline', { reason: '\t\n' }],
+        ['a number', { reason: 5 }],
+        ['an object', { reason: { text: 'x' } }],
+        ['an array', { reason: ['x'] }],
+        ['501 characters', { reason: 'x'.repeat(501) }],
+      ])('refuses a reason that is %s', async (_n, body) => {
+        await expect(run(Dto, body)).rejects.toMatchObject({ status: 400 });
+      });
+
+      it.each([
+        ['actorId'],
+        ['verifiedBy'],
+        ['approvedBy'],
+        ['cancelledBy'],
+        ['status'],
+        ['remarks'],
+        ['salesOrderId'],
+      ])(
+        "refuses a request that also sends %s (the actor and status are never the client's to set)",
+        async (field) => {
+          await expect(
+            run(Dto, { reason: 'ok', [field]: 'user-2' }),
+          ).rejects.toMatchObject({ status: 400 });
+        },
+      );
+    },
+  );
+
   describe('values stay in step with the Prisma schema', () => {
     const enumValues = (name: string) => {
       const block = read('prisma/schema.prisma').match(
@@ -407,6 +477,45 @@ describe('Sales Order DTO validation (the global ValidationPipe, as in main.ts)'
         /ON CONFLICT \("roleId", "permissionId"\) DO NOTHING/,
       );
       expect(sql).not.toMatch(/\b(DROP|DELETE|TRUNCATE|UPDATE)\b/i);
+    });
+
+    it('the cancel/retract permission SQL adds exactly the three approved codes, grants only SUPER_ADMIN, and rolls back only those', () => {
+      const file =
+        'prisma/manual-migrations/20261006_crm_sales_order_cancel_retract_permissions.sql';
+      const sql = statements(file);
+      const approved = [
+        'salesorders.advancereceipts.retract',
+        'salesorders.commercialapproval.retract',
+        'salesorders.cancel',
+      ];
+      const inserted = [
+        ...sql.matchAll(/\('(salesorders\.[a-z.]+)',\s+'[^']+'\)/g),
+      ].map((m) => m[1]);
+      expect(inserted.sort()).toEqual([...approved].sort());
+      expect(sql).toMatch(/r\."name" = 'SUPER_ADMIN'/);
+      expect(sql).toMatch(/ON CONFLICT \("code"\) DO NOTHING/);
+      expect(sql).toMatch(
+        /ON CONFLICT \("roleId", "permissionId"\) DO NOTHING/,
+      );
+      expect(sql).toMatch(/^BEGIN;$/m);
+      expect(sql).toMatch(/^COMMIT;$/m);
+      // Data only: nothing that changes or removes anything runs.
+      expect(sql).not.toMatch(
+        /\b(DROP|DELETE|TRUNCATE|UPDATE|ALTER|CREATE)\b/i,
+      );
+      // The grant names the three codes, not a wildcard that could widen later.
+      expect(sql).not.toMatch(/LIKE/i);
+      for (const code of approved) expect(sql).toContain(`'${code}'`);
+
+      // The commented rollback removes the same three codes and nothing else.
+      const rollback = read(file)
+        .split('\n')
+        .filter((l) => l.startsWith('-- '))
+        .join('\n');
+      expect(rollback).toMatch(/DELETE FROM "RolePermission"/);
+      expect(rollback).toMatch(/DELETE FROM "Permission"/);
+      expect(rollback).not.toMatch(/LIKE/i);
+      for (const code of approved) expect(rollback).toContain(`'${code}'`);
     });
   });
 });

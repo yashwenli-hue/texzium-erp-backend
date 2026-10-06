@@ -6,7 +6,20 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../../core/database/prisma.service';
 import { CreateSalesOrderDto } from './dto/create-sales-order.dto';
-import { SALES_ORDER_STATUS, requireSalesOrder } from './sales-order-lifecycle';
+import { CancelSalesOrderDto } from './dto/cancel-sales-order.dto';
+import {
+  SALES_ORDER_EVENT_ACTION,
+  SALES_ORDER_EVENT_RESULT,
+  SALES_ORDER_STATUS,
+  assertNoDownstreamWork,
+  cancelSalesOrderStatus,
+  conflictCannotCancel,
+  isSalesOrderCancellationAllowed,
+  lockSalesOrder,
+  recordSalesOrderEvent,
+  requireActor,
+  requireSalesOrder,
+} from './sales-order-lifecycle';
 
 // A client-sent total may differ from the Proforma's by no more than a paisa
 // of floating-point noise.
@@ -24,7 +37,8 @@ export class SalesOrdersService {
   // forward: the Proforma row is locked for the whole transaction, so two
   // simultaneous requests cannot both pass the duplicate check. (Existing
   // duplicates are left exactly as they are.) The order and the purchase
-  // requisition for a stock shortage are written together.
+  // requisition for a stock shortage are written together. A CANCELLED order
+  // no longer counts: it stays in history, but a replacement may be created.
   async create(data: CreateSalesOrderDto) {
     return this.prisma.$transaction(async (tx) => {
       // ==========================================================
@@ -52,10 +66,13 @@ export class SalesOrdersService {
       }
 
       // ==========================================================
-      // 2. One Sales Order per Proforma
+      // 2. One non-cancelled Sales Order per Proforma
       // ==========================================================
       const existing = await tx.salesOrder.count({
-        where: { proformaInvoiceId: data.proformaInvoiceId },
+        where: {
+          proformaInvoiceId: data.proformaInvoiceId,
+          status: { not: SALES_ORDER_STATUS.CANCELLED },
+        },
       });
 
       if (existing > 0) {
@@ -156,6 +173,62 @@ export class SalesOrdersService {
       }
 
       return salesOrder;
+    });
+  }
+
+  // ==========================================================
+  // Cancel a Sales Order for good
+  //
+  // PENDING_STORE_APPROVAL, PENDING_ACCOUNTS_APPROVAL or
+  // READY_FOR_DISPATCH_ORDER -> CANCELLED, with a mandatory reason. Nothing
+  // else about the order is touched: a VERIFIED advance receipt stays VERIFIED
+  // (the advance is not refunded here), payment terms and approvals stay as
+  // they are, and the Proforma and Quotation keep their status. The order row
+  // is locked for the whole transaction, so the downstream checks and the
+  // status change are one decision: Operations cannot slip a dispatch order or
+  // an invoice in between, and a racing verification or approval either goes
+  // first (and this sees the new status) or loses with a 409.
+  // ==========================================================
+  async cancel(
+    id: string,
+    actorId: string | undefined,
+    data: CancelSalesOrderDto,
+  ) {
+    const actor = await requireActor(this.prisma, actorId);
+
+    return this.prisma.$transaction(async (tx) => {
+      const now = new Date();
+
+      const from = await lockSalesOrder(tx, id);
+
+      if (!isSalesOrderCancellationAllowed(from)) {
+        throw conflictCannotCancel(from);
+      }
+
+      await assertNoDownstreamWork(tx, id, 'cancel');
+
+      const moved = await cancelSalesOrderStatus(tx, id, from);
+
+      if (!moved) {
+        const order = await requireSalesOrder(tx, id);
+        throw conflictCannotCancel(order.status);
+      }
+
+      await recordSalesOrderEvent(tx, {
+        salesOrderId: id,
+        action: SALES_ORDER_EVENT_ACTION.SALES_ORDER_CANCELLED,
+        result: SALES_ORDER_EVENT_RESULT.CANCELLED,
+        fromStatus: from,
+        toStatus: SALES_ORDER_STATUS.CANCELLED,
+        remarks: data.reason,
+        actorId: actor.id,
+        occurredAt: now,
+      });
+
+      return {
+        message: 'Sales Order cancelled.',
+        salesOrder: { id, status: SALES_ORDER_STATUS.CANCELLED },
+      };
     });
   }
 

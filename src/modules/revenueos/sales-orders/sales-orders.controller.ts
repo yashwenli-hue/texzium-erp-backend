@@ -1,6 +1,17 @@
-import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  Post,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import { SalesOrdersService } from './sales-orders.service';
 import { CreateSalesOrderDto } from './dto/create-sales-order.dto';
+import { CancelSalesOrderDto } from './dto/cancel-sales-order.dto';
 
 import { JwtAuthGuard } from '../../../core/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../../core/guards/permissions.guard';
@@ -21,6 +32,18 @@ export class SalesOrdersController {
   @Permissions('salesorders.view')
   findAll() {
     return this.salesOrdersService.findAll();
+  }
+
+  // Cancels an order for good. The actor is the signed-in user.
+  @Post(':id/cancel')
+  @HttpCode(HttpStatus.OK)
+  @Permissions('salesorders.cancel')
+  cancel(
+    @Param('id') id: string,
+    @Body() data: CancelSalesOrderDto,
+    @Req() req: { user?: { id?: string } },
+  ) {
+    return this.salesOrdersService.cancel(id, req.user?.id, data);
   }
 
   @Get(':id/events')

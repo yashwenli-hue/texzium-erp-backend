@@ -11,6 +11,7 @@ import {
 import { SalesOrderAdvanceReceiptService } from './sales-order-advance-receipt.service';
 import { CreateSalesOrderAdvanceReceiptDto } from './dto/create-sales-order-advance-receipt.dto';
 import { VerifySalesOrderAdvanceReceiptDto } from './dto/verify-sales-order-advance-receipt.dto';
+import { RetractSalesOrderAdvanceReceiptVerificationDto } from './dto/retract-sales-order-advance-receipt-verification.dto';
 
 import { JwtAuthGuard } from '../../../core/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../../core/guards/permissions.guard';
@@ -38,6 +39,21 @@ export class SalesOrderAdvanceReceiptController {
     @Req() req: { user?: { id?: string } },
   ) {
     return this.salesOrderAdvanceReceiptService.verify(id, req.user?.id, data);
+  }
+
+  // Undoes a verification. The actor is the signed-in user.
+  @Patch(':id/retract-verification')
+  @Permissions('salesorders.advancereceipts.retract')
+  retractVerification(
+    @Param('id') id: string,
+    @Body() data: RetractSalesOrderAdvanceReceiptVerificationDto,
+    @Req() req: { user?: { id?: string } },
+  ) {
+    return this.salesOrderAdvanceReceiptService.retractVerification(
+      id,
+      req.user?.id,
+      data,
+    );
   }
 
   @Get()

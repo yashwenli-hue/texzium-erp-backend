@@ -17,8 +17,17 @@ export class SalesReportsService {
     const quotations =
       await this.prisma.quotation.count();
 
+    // A cancelled Sales Order is no longer part of the pipeline: it is left
+    // out of salesOrders and reported on its own.
     const salesOrders =
-      await this.prisma.salesOrder.count();
+      await this.prisma.salesOrder.count({
+        where: { status: { not: 'CANCELLED' } },
+      });
+
+    const cancelledSalesOrders =
+      await this.prisma.salesOrder.count({
+        where: { status: 'CANCELLED' },
+      });
 
     const invoices =
       await this.prisma.salesInvoice.count();
@@ -28,6 +37,7 @@ export class SalesReportsService {
       opportunities,
       quotations,
       salesOrders,
+      cancelledSalesOrders,
       invoices,
     };
   }
@@ -100,8 +110,16 @@ async quotationConversion() {
   const quotations =
     await this.prisma.quotation.count();
 
+  // Cancelled Sales Orders are not conversions; they are reported separately.
   const salesOrders =
-    await this.prisma.salesOrder.count();
+    await this.prisma.salesOrder.count({
+      where: { status: { not: 'CANCELLED' } },
+    });
+
+  const cancelledSalesOrders =
+    await this.prisma.salesOrder.count({
+      where: { status: 'CANCELLED' },
+    });
 
   const conversionRate =
     quotations > 0
@@ -111,6 +129,7 @@ async quotationConversion() {
   return {
     totalQuotations: quotations,
     convertedToSalesOrders: salesOrders,
+    cancelledSalesOrders,
     conversionRate: conversionRate.toFixed(2) + '%',
   };
 }

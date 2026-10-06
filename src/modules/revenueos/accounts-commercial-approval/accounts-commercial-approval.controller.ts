@@ -1,6 +1,17 @@
-import { Body, Controller, Get, Post, Req, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  Post,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import { AccountsCommercialApprovalService } from './accounts-commercial-approval.service';
 import { CreateAccountsCommercialApprovalDto } from './dto/create-accounts-commercial-approval.dto';
+import { RetractAccountsCommercialApprovalDto } from './dto/retract-accounts-commercial-approval.dto';
 
 import { JwtAuthGuard } from '../../../core/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../../core/guards/permissions.guard';
@@ -21,6 +32,22 @@ export class AccountsCommercialApprovalController {
     @Req() req: { user?: { id?: string } },
   ) {
     return this.accountsCommercialApprovalService.create(data, req.user?.id);
+  }
+
+  // Undoes an approval. The actor is the signed-in user.
+  @Post(':id/retract')
+  @HttpCode(HttpStatus.OK)
+  @Permissions('salesorders.commercialapproval.retract')
+  retract(
+    @Param('id') id: string,
+    @Body() data: RetractAccountsCommercialApprovalDto,
+    @Req() req: { user?: { id?: string } },
+  ) {
+    return this.accountsCommercialApprovalService.retract(
+      id,
+      req.user?.id,
+      data,
+    );
   }
 
   @Get()

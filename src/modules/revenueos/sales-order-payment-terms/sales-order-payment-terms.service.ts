@@ -1,32 +1,38 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../core/database/prisma.service';
 import { CreateSalesOrderPaymentTermDto } from './dto/create-sales-order-payment-term.dto';
-import { SALES_ORDER_NOT_FOUND_MESSAGE } from '../sales-orders/sales-order-lifecycle';
+import {
+  canRecordSalesOrderDocuments,
+  conflictNotAcceptingDocuments,
+  readSalesOrderStatusShared,
+} from '../sales-orders/sales-order-lifecycle';
 
 @Injectable()
 export class SalesOrderPaymentTermsService {
   constructor(private prisma: PrismaService) {}
 
+  // Payment terms can only be recorded while the order is waiting for store
+  // or accounts approval. The status is read under a shared row lock, so a
+  // cancellation cannot commit between the check and the insert.
   async create(data: CreateSalesOrderPaymentTermDto) {
-    const salesOrder = await this.prisma.salesOrder.findUnique({
-      where: { id: data.salesOrderId },
-      select: { id: true },
-    });
+    return this.prisma.$transaction(async (tx) => {
+      const status = await readSalesOrderStatusShared(tx, data.salesOrderId);
 
-    if (!salesOrder) {
-      throw new NotFoundException(SALES_ORDER_NOT_FOUND_MESSAGE);
-    }
+      if (!canRecordSalesOrderDocuments(status)) {
+        throw conflictNotAcceptingDocuments('payment terms', status);
+      }
 
-    return this.prisma.salesOrderPaymentTerm.create({
-      data: {
-        salesOrderId: data.salesOrderId,
-        paymentType: data.paymentType,
-        advanceAmount: data.advanceAmount,
-        balanceAmount: data.balanceAmount,
-        creditDays: data.creditDays,
-        dueDate: data.dueDate ? new Date(data.dueDate) : null,
-        remarks: data.remarks,
-      },
+      return tx.salesOrderPaymentTerm.create({
+        data: {
+          salesOrderId: data.salesOrderId,
+          paymentType: data.paymentType,
+          advanceAmount: data.advanceAmount,
+          balanceAmount: data.balanceAmount,
+          creditDays: data.creditDays,
+          dueDate: data.dueDate ? new Date(data.dueDate) : null,
+          remarks: data.remarks,
+        },
+      });
     });
   }
 
