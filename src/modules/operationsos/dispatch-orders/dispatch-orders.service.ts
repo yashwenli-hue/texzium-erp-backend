@@ -3,6 +3,7 @@ import {
   BadRequestException,
   NotFoundException,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../core/database/prisma.service';
 import { CreateDispatchOrderDto } from './dto/create-dispatch-order.dto';
 import { IssueService } from '../inventory-engine/services/issue.service';
@@ -16,36 +17,27 @@ export class DispatchOrdersService {
     private readonly inventoryLockService: InventoryLockService,
   ) {}
 
+  // Creates a Dispatch Order. When it is for a Sales Order, the order's status
+  // is claimed first and the Dispatch Order is inserted second, both in one
+  // transaction. The claim is an atomic compare-and-set
+  // (READY_FOR_DISPATCH_ORDER -> DISPATCH_ORDER_CREATED), so a RevenueOS
+  // retraction or cancellation that got there first leaves it matching nothing:
+  // the request is refused and no Dispatch Order is written. If the claim wins,
+  // the retraction or cancellation waits for this transaction and then finds a
+  // Dispatch Order and a changed status, and refuses in turn.
+  //
+  // A request that names a Sales Order under another source (for example
+  // DIRECT_DISPATCH) still marks it DISPATCH_ORDER_CREATED as it always did,
+  // but never over a CANCELLED order, and never leaves a Dispatch Order behind
+  // for one.
   async create(data: CreateDispatchOrderDto) {
     // ============================
-    // SALES ORDER VALIDATION
+    // VALIDATION
     // ============================
 
-    if (data.dispatchSource === 'SALES_ORDER') {
-      if (!data.salesOrderId) {
-        throw new Error('Sales Order is required.');
-      }
-
-      const salesOrder = await this.prisma.salesOrder.findUnique({
-        where: {
-          id: data.salesOrderId,
-        },
-      });
-
-      if (!salesOrder) {
-        throw new Error('Sales Order not found.');
-      }
-
-      if (salesOrder.status !== 'READY_FOR_DISPATCH_ORDER') {
-        throw new Error(
-          'Sales Order is not ready for dispatch.',
-        );
-      }
+    if (data.dispatchSource === 'SALES_ORDER' && !data.salesOrderId) {
+      throw new Error('Sales Order is required.');
     }
-
-    // ============================
-    // DIRECT DISPATCH
-    // ============================
 
     if (data.dispatchSource === 'DIRECT_DISPATCH') {
       if (!data.customerName) {
@@ -61,15 +53,22 @@ export class DispatchOrdersService {
     // GENERATE DISPATCH ORDER NO
     // ============================
 
-    const dispatchOrderNo =
-      'DO-' + Date.now();
+    const dispatchOrderNo = 'DO-' + Date.now();
 
-    // ============================
-    // CREATE DISPATCH ORDER
-    // ============================
+    return this.prisma.$transaction(async (tx) => {
+      // ============================
+      // CLAIM THE SALES ORDER
+      // ============================
 
-    const dispatchOrder =
-      await this.prisma.dispatchOrder.create({
+      if (data.salesOrderId) {
+        await this.claimSalesOrder(tx, data);
+      }
+
+      // ============================
+      // CREATE DISPATCH ORDER
+      // ============================
+
+      return tx.dispatchOrder.create({
         data: {
           dispatchOrderNo,
           dispatchSource: data.dispatchSource,
@@ -81,9 +80,7 @@ export class DispatchOrdersService {
           isCommercial: data.isCommercial ?? true,
           dispatchReason: data.dispatchReason,
 
-          dispatchDate: data.dispatchDate
-            ? new Date(data.dispatchDate)
-            : null,
+          dispatchDate: data.dispatchDate ? new Date(data.dispatchDate) : null,
 
           transportName: data.transportName,
           vehicleNumber: data.vehicleNumber,
@@ -113,23 +110,56 @@ export class DispatchOrdersService {
           status: 'LOGISTICS_PREPARING',
         },
       });
+    });
+  }
 
-    // ============================
-    // UPDATE SALES ORDER
-    // ============================
+  // The Sales Order half of create(), run inside its transaction. Throws the
+  // same messages create() always threw.
+  private async claimSalesOrder(
+    tx: Pick<Prisma.TransactionClient, 'salesOrder'>,
+    data: CreateDispatchOrderDto,
+  ): Promise<void> {
+    const salesOrderId = data.salesOrderId as string;
 
-    if (data.salesOrderId) {
-      await this.prisma.salesOrder.update({
-        where: {
-          id: data.salesOrderId,
-        },
-        data: {
-          status: 'DISPATCH_ORDER_CREATED',
-        },
+    if (data.dispatchSource === 'SALES_ORDER') {
+      const claimed = await tx.salesOrder.updateMany({
+        where: { id: salesOrderId, status: 'READY_FOR_DISPATCH_ORDER' },
+        data: { status: 'DISPATCH_ORDER_CREATED' },
       });
+
+      if (claimed.count === 1) {
+        return;
+      }
+
+      const current = await tx.salesOrder.findUnique({
+        where: { id: salesOrderId },
+        select: { id: true },
+      });
+
+      throw new Error(
+        current
+          ? 'Sales Order is not ready for dispatch.'
+          : 'Sales Order not found.',
+      );
     }
 
-    return dispatchOrder;
+    const marked = await tx.salesOrder.updateMany({
+      where: { id: salesOrderId, status: { not: 'CANCELLED' } },
+      data: { status: 'DISPATCH_ORDER_CREATED' },
+    });
+
+    if (marked.count === 0) {
+      const current = await tx.salesOrder.findUnique({
+        where: { id: salesOrderId },
+        select: { id: true },
+      });
+
+      // A cancelled order is never dispatched. An unknown id is left to the
+      // Dispatch Order insert, which fails on its foreign key as it always did.
+      if (current) {
+        throw new Error('Sales Order is not ready for dispatch.');
+      }
+    }
   }
 
   async findAll() {
