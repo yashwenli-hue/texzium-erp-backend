@@ -65,6 +65,7 @@ model User {
   leadActivities     LeadTimeline[] @relation("LeadTimelineActor")
   deactivatedLeads   Lead[]         @relation("LeadDeactivatedBy")
   salesOrderEvents   SalesOrderEvent[] @relation("SalesOrderEventActor")
+  quotationEvents    QuotationEvent[]  @relation("QuotationEventActor")
 }
 
 model Role {
@@ -419,7 +420,8 @@ model Quotation {
   gstPercent    Float @default(0)
   gstAmount     Float @default(0)
 
-  opportunity Opportunity @relation(fields: [opportunityId], references: [id])
+  opportunity Opportunity       @relation(fields: [opportunityId], references: [id])
+  events      QuotationEvent[]
 }
 
 model SalesOrder {
@@ -1837,6 +1839,34 @@ model SalesOrderEvent {
   salesOrder SalesOrder @relation(fields: [salesOrderId], references: [id])
 
   @@index([salesOrderId, occurredAt])
+  @@index([actorId])
+}
+
+model QuotationEvent {
+  id          String @id @default(uuid())
+  quotationId String
+
+  action     String
+  fromStatus String?
+  toStatus   String?
+  remarks    String?
+
+  // Set on a revision only: the amounts before and after it.
+  previousTaxableAmount Float?
+  newTaxableAmount      Float?
+  previousTotalAmount   Float?
+  newTotalAmount        Float?
+
+  actorId String?
+  actor   User?   @relation("QuotationEventActor", fields: [actorId], references: [id])
+
+  // When the event happened; createdAt is when the row was recorded.
+  occurredAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+
+  quotation Quotation @relation(fields: [quotationId], references: [id])
+
+  @@index([quotationId, occurredAt])
   @@index([actorId])
 }
 
