@@ -390,7 +390,7 @@ model Opportunity {
   expectedValue     Float
   probability       Int
   expectedCloseDate DateTime
-  status            String      @default("OPEN")
+  status            String      @default("QUALIFIED")
   createdAt         DateTime    @default(now())
   updatedAt         DateTime    @updatedAt
   quotations        Quotation[]

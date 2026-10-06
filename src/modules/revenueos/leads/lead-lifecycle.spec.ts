@@ -31,6 +31,17 @@ const ALL = [
   'opportunities.create',
 ];
 
+// Creating an opportunity now needs a UUID lead id, so these leads are named by
+// UUID when that endpoint is called. The fake database resolves them back to
+// the lead keys used everywhere else in this spec.
+const LEAD_UUID: Record<string, string> = {
+  clean: '00000000-0000-4000-8000-000000000001',
+  inactive: '00000000-0000-4000-8000-000000000002',
+  nope: '00000000-0000-4000-8000-000000000003',
+};
+const leadKey = (id: string) =>
+  Object.entries(LEAD_UUID).find(([, uuid]) => uuid === id)?.[0] ?? id;
+
 interface FakeLead {
   id: string;
   isActive: boolean;
@@ -153,13 +164,14 @@ describe('Lead deactivate / reactivate', () => {
     salesOrder: { count: jest.fn(async () => 0) },
     salesInvoice: { count: jest.fn(async () => 0) },
     $queryRaw: jest.fn(async (strings: TemplateStringsArray, id: string) => {
+      const key = leadKey(id);
       calls.locks.push({
         sql: strings.join('?').replace(/\s+/g, ' ').trim(),
-        id,
+        id: key,
         inTransaction,
       });
-      const l = leads[id];
-      return l ? [{ id, isActive: l.isActive }] : [];
+      const l = leads[key];
+      return l ? [{ id: key, isActive: l.isActive }] : [];
     }),
     $transaction: jest.fn(async (arg: any) => {
       if (typeof arg === 'function') {
@@ -424,7 +436,7 @@ describe('Lead deactivate / reactivate', () => {
         'create opportunity',
         () =>
           http().post('/opportunities').send({
-            leadId: 'clean',
+            leadId: LEAD_UUID.clean,
             title: 'M',
             expectedValue: 1,
             probability: 1,
@@ -464,7 +476,7 @@ describe('Lead deactivate / reactivate', () => {
       expect(
         (
           await http().post('/opportunities').send({
-            leadId: 'nope',
+            leadId: LEAD_UUID.nope,
             title: 'M',
             expectedValue: 1,
             probability: 1,
@@ -635,13 +647,15 @@ describe('Lead deactivate / reactivate', () => {
       [
         'create opportunity',
         (id) =>
-          http().post('/opportunities').send({
-            leadId: id,
-            title: 'Machine',
-            expectedValue: 1000,
-            probability: 50,
-            expectedCloseDate: '2026-12-01',
-          }),
+          http()
+            .post('/opportunities')
+            .send({
+              leadId: LEAD_UUID[id] ?? id,
+              title: 'Machine',
+              expectedValue: 1000,
+              probability: 50,
+              expectedCloseDate: '2026-12-01',
+            }),
         201,
       ],
     ];
