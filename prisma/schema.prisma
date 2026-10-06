@@ -64,6 +64,7 @@ model User {
   completedFollowups LeadFollowup[] @relation("LeadFollowupCompletedBy")
   leadActivities     LeadTimeline[] @relation("LeadTimelineActor")
   deactivatedLeads   Lead[]         @relation("LeadDeactivatedBy")
+  salesOrderEvents   SalesOrderEvent[] @relation("SalesOrderEventActor")
 }
 
 model Role {
@@ -453,6 +454,7 @@ model SalesOrder {
   paymentTerms        SalesOrderPaymentTerm[]
   advanceReceipts     SalesOrderAdvanceReceipt[]
   commercialApprovals AccountsCommercialApproval[]
+  events              SalesOrderEvent[]
 }
 
 model InventoryItem {
@@ -1804,6 +1806,38 @@ model SalesOrderAdvanceReceipt {
   verifiedAt         DateTime?
 
   salesOrder SalesOrder @relation(fields: [salesOrderId], references: [id])
+}
+
+// Lifecycle history of a Sales Order: who did what, when, with what result.
+// Separate from general notes. `action` names the event (for example
+// ADVANCE_RECEIPT_VERIFIED, ADVANCE_RECEIPT_REJECTED, ACCOUNTS_APPROVED);
+// `result` is the outcome (VERIFIED, REJECTED, APPROVED); `fromStatus` and
+// `toStatus` show the order's status around the event (equal when the event did
+// not move the order, such as a rejected advance); `referenceId` points at the
+// advance receipt or approval the event is about. The actor always comes from
+// the signed-in user.
+model SalesOrderEvent {
+  id           String @id @default(uuid())
+  salesOrderId String
+
+  action      String
+  result      String?
+  fromStatus  String?
+  toStatus    String?
+  referenceId String?
+  remarks     String?
+
+  actorId String?
+  actor   User?   @relation("SalesOrderEventActor", fields: [actorId], references: [id])
+
+  // When the event happened; createdAt is when the row was recorded.
+  occurredAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+
+  salesOrder SalesOrder @relation(fields: [salesOrderId], references: [id])
+
+  @@index([salesOrderId, occurredAt])
+  @@index([actorId])
 }
 
 model AccountsCommercialApproval {

@@ -1,24 +1,28 @@
-import { IsNumber, IsString } from 'class-validator';
+import { IsISO8601, IsNumber, IsPositive, IsUUID } from 'class-validator';
 
+// `totalAmount` is still accepted from the client in this version; deriving it
+// from the approved Proforma Invoice is part of the lifecycle work that follows.
 export class CreateSalesOrderDto {
-  @IsString()
+  @IsUUID()
   proformaInvoiceId: string;
 
-  @IsString()
+  @IsISO8601({ strict: true })
   orderDate: string;
 
-  @IsNumber()
+  @IsNumber({ allowNaN: false, allowInfinity: false })
+  @IsPositive()
   totalAmount: number;
 
-  @IsString()
+  @IsUUID()
   inventoryItemId: string;
 
-  @IsNumber()
+  @IsNumber({ allowNaN: false, allowInfinity: false })
+  @IsPositive()
   orderQty: number;
 
-  @IsString()
+  @IsUUID()
   sellerGstId: string;
 
-  @IsString()
+  @IsUUID()
   buyerGstId: string;
 }
