@@ -1,11 +1,5 @@
 import { Transform } from 'class-transformer';
-import {
-  IsIn,
-  IsNotEmpty,
-  IsOptional,
-  IsString,
-  MaxLength,
-} from 'class-validator';
+import { IsIn, IsOptional, IsString, MaxLength } from 'class-validator';
 
 import {
   ADVANCE_RECEIPT_VERIFICATION_OUTCOMES,
@@ -16,6 +10,8 @@ import type { AdvanceReceiptVerificationOutcome } from '../../sales-orders/sales
 const trim = ({ value }: { value: unknown }) =>
   typeof value === 'string' ? value.trim() : value;
 
+// The verifier is the signed-in user; the request cannot name one (the
+// ValidationPipe rejects verifiedBy and any other undeclared property).
 export class VerifySalesOrderAdvanceReceiptDto {
   // The only outcomes a verification can have.
   @IsIn(ADVANCE_RECEIPT_VERIFICATION_OUTCOMES)
@@ -26,14 +22,4 @@ export class VerifySalesOrderAdvanceReceiptDto {
   @IsString()
   @MaxLength(SALES_ORDER_REMARKS_MAX_LENGTH)
   remarks?: string;
-
-  // TRANSITIONAL: a free-text label the current service still writes to the
-  // receipt. It is not the actor and is removed when the lifecycle service
-  // records the signed-in user instead.
-  @IsOptional()
-  @Transform(trim)
-  @IsString()
-  @IsNotEmpty()
-  @MaxLength(120)
-  verifiedBy?: string;
 }

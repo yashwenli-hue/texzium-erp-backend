@@ -1,7 +1,14 @@
-import { IsISO8601, IsNumber, IsPositive, IsUUID } from 'class-validator';
+import {
+  IsISO8601,
+  IsNumber,
+  IsOptional,
+  IsPositive,
+  IsUUID,
+} from 'class-validator';
 
-// `totalAmount` is still accepted from the client in this version; deriving it
-// from the approved Proforma Invoice is part of the lifecycle work that follows.
+// The order's total always comes from the approved Proforma Invoice. A
+// client may still send `totalAmount` (older screens do), but it is never stored:
+// it is only checked against the Proforma's and refused when it differs.
 export class CreateSalesOrderDto {
   @IsUUID()
   proformaInvoiceId: string;
@@ -9,9 +16,10 @@ export class CreateSalesOrderDto {
   @IsISO8601({ strict: true })
   orderDate: string;
 
+  @IsOptional()
   @IsNumber({ allowNaN: false, allowInfinity: false })
   @IsPositive()
-  totalAmount: number;
+  totalAmount?: number;
 
   @IsUUID()
   inventoryItemId: string;

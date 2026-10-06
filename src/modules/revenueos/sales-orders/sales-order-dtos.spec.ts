@@ -61,6 +61,14 @@ describe('Sales Order DTO validation (the global ValidationPipe, as in main.ts)'
       ).resolves.toBeDefined();
     });
 
+    it('accepts an order with no total (the total comes from the Proforma)', async () => {
+      const { totalAmount: _omitted, ...withoutTotal } = valid;
+      void _omitted;
+      await expect(
+        run(CreateSalesOrderDto, withoutTotal),
+      ).resolves.toBeDefined();
+    });
+
     it.each([
       ['a proforma id that is not a UUID', { proformaInvoiceId: 'p-1' }],
       ['a missing proforma id', { proformaInvoiceId: undefined }],
@@ -284,24 +292,18 @@ describe('Sales Order DTO validation (the global ValidationPipe, as in main.ts)'
       ).rejects.toMatchObject({ status: 400 });
     });
 
-    it('keeps the transitional verifier label optional and bounded', async () => {
+    it('rejects a client-named verifier: the actor is the signed-in user', async () => {
       await expect(
         run(VerifySalesOrderAdvanceReceiptDto, {
           verificationStatus: 'VERIFIED',
           verifiedBy: 'Accounts Manager',
-        }),
-      ).resolves.toBeDefined();
-      await expect(
-        run(VerifySalesOrderAdvanceReceiptDto, {
-          verificationStatus: 'VERIFIED',
-          verifiedBy: '   ',
         }),
       ).rejects.toMatchObject({ status: 400 });
     });
   });
 
   describe('CreateAccountsCommercialApprovalDto', () => {
-    const valid = { salesOrderId: U1, approvedBy: 'Accounts Manager' };
+    const valid = { salesOrderId: U1 };
 
     it('accepts a valid approval with optional trimmed remarks', async () => {
       const ok = await run(CreateAccountsCommercialApprovalDto, {
@@ -314,8 +316,7 @@ describe('Sales Order DTO validation (the global ValidationPipe, as in main.ts)'
     it.each([
       ['an order id that is not a UUID', { salesOrderId: 'so-1' }],
       ['no order id', { salesOrderId: undefined }],
-      ['no approver label', { approvedBy: undefined }],
-      ['a blank approver label', { approvedBy: '   ' }],
+      ['a client-named approver', { approvedBy: 'Accounts Manager' }],
       [
         'remarks over the limit',
         { remarks: 'x'.repeat(SALES_ORDER_REMARKS_MAX_LENGTH + 1) },
