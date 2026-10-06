@@ -1,6 +1,10 @@
-import { Injectable } from '@nestjs/common';
+import { ConflictException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../core/database/prisma.service';
 import { CreateSalesInvoiceDto } from './dto/create-sales-invoice.dto';
+import {
+  SALES_ORDER_STATUS,
+  readSalesOrderStatusShared,
+} from '../sales-orders/sales-order-lifecycle';
 
 @Injectable()
 export class SalesInvoicesService {
@@ -48,23 +52,39 @@ export class SalesInvoicesService {
       const totalAmount = taxableAmount + gstAmount;
 
       // 4. Create Sales Invoice
-      const salesInvoice = await this.prisma.salesInvoice.create({
-        data: {
-          salesOrderId: data.salesOrderId,
-          dispatchOrderId: data.dispatchOrderId,
-          invoiceDate: new Date(data.invoiceDate),
-          customerName: data.customerName,
+      //
+      // A cancelled Sales Order cannot be invoiced. Only this first insert is
+      // inside a transaction: the order's status is read under a shared row
+      // lock, so a cancellation cannot commit between the check and the insert
+      // (it waits for the invoice, then sees it and refuses), and nothing is
+      // written for a cancelled order.
+      const salesInvoice = await this.prisma.$transaction(async (tx) => {
+        const status = await readSalesOrderStatusShared(tx, data.salesOrderId);
 
-          taxableAmount,
-          gstAmount,
-          cgstAmount,
-          sgstAmount,
-          igstAmount,
-          totalAmount,
+        if (status === SALES_ORDER_STATUS.CANCELLED) {
+          throw new ConflictException(
+            'A cancelled Sales Order cannot be invoiced.',
+          );
+        }
 
-          remarks: data.remarks,
-          status: 'POSTED',
-        },
+        return tx.salesInvoice.create({
+          data: {
+            salesOrderId: data.salesOrderId,
+            dispatchOrderId: data.dispatchOrderId,
+            invoiceDate: new Date(data.invoiceDate),
+            customerName: data.customerName,
+
+            taxableAmount,
+            gstAmount,
+            cgstAmount,
+            sgstAmount,
+            igstAmount,
+            totalAmount,
+
+            remarks: data.remarks,
+            status: 'POSTED',
+          },
+        });
       });
 
       // 5. Accounts Receivable
