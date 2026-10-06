@@ -303,28 +303,4 @@ export class QuotationsService {
       return tx.quotation.findUniqueOrThrow({ where: { id } });
     });
   }
-
-  async convertToSalesOrder(id: string) {
-    const quotation =
-      await this.prisma.quotation.findUnique({
-        where: { id },
-      });
-
-    if (!quotation) {
-      throw new Error('Quotation not found');
-    }
-
-    return this.prisma.salesOrder.create({
-      data: {
-        quotationId: quotation.id,
-        orderDate: new Date(),
-        totalAmount: quotation.totalAmount,
-        sellerGstId: quotation.sellerGstId,
-        buyerGstId: quotation.buyerGstId,
-        placeOfSupply: quotation.placeOfSupply,
-        taxType: quotation.taxType,
-        status: 'OPEN',
-      },
-    });
-  }
 }

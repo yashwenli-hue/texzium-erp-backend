@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  GoneException,
   Param,
   Patch,
   Post,
@@ -75,11 +76,15 @@ export class QuotationsController {
     return this.quotationsService.reject(id, req.user?.id, body);
   }
 
-  // Still the legacy conversion, untouched here: it is retired in the
-  // Proforma and legacy-closure checkpoint. It declares no permission, so it
-  // needs only a signed-in user.
+  // Retired. A Sales Order is created from an approved Proforma Invoice
+  // (POST /sales-orders) and in no other way. This route reads and writes
+  // nothing and answers 410 whatever it is sent; it stays only so an old client
+  // gets a clear message instead of a 404. It declares no permission, so any
+  // signed-in user receives that message.
   @Post(':id/convert')
-  convertToSalesOrder(@Param('id') id: string) {
-    return this.quotationsService.convertToSalesOrder(id);
+  convertToSalesOrder() {
+    throw new GoneException(
+      'Converting a Quotation straight into a Sales Order is no longer supported. Create a Proforma Invoice from the approved Quotation, approve it, then create the Sales Order from the Proforma Invoice.',
+    );
   }
 }

@@ -66,6 +66,7 @@ model User {
   deactivatedLeads   Lead[]         @relation("LeadDeactivatedBy")
   salesOrderEvents   SalesOrderEvent[] @relation("SalesOrderEventActor")
   quotationEvents    QuotationEvent[]  @relation("QuotationEventActor")
+  proformaEvents     ProformaEvent[]   @relation("ProformaEventActor")
 }
 
 model Role {
@@ -622,7 +623,30 @@ model ProformaInvoice {
   updatedAt      DateTime     @updatedAt
   salesOrders    SalesOrder[]
 
-  quotation Quotation @relation(fields: [quotationId], references: [id])
+  quotation Quotation        @relation(fields: [quotationId], references: [id])
+  events    ProformaEvent[]
+}
+
+model ProformaEvent {
+  id                String @id @default(uuid())
+  proformaInvoiceId String
+
+  action     String
+  fromStatus String?
+  toStatus   String?
+  remarks    String?
+
+  actorId String?
+  actor   User?   @relation("ProformaEventActor", fields: [actorId], references: [id])
+
+  // When the event happened; createdAt is when the row was recorded.
+  occurredAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+
+  proformaInvoice ProformaInvoice @relation(fields: [proformaInvoiceId], references: [id])
+
+  @@index([proformaInvoiceId, occurredAt])
+  @@index([actorId])
 }
 
 model PurchaseRequisition {

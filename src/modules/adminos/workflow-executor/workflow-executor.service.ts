@@ -8,37 +8,17 @@ export class WorkflowExecutorService {
   async execute(payload: any) {
     const { trigger, referenceId } = payload;
 
+    // Retired: this trigger used to create a Sales Order straight from an
+    // approved Quotation, outside the Sales Order lifecycle. A Sales Order is
+    // now created only from an approved Proforma Invoice (POST /sales-orders),
+    // so this does nothing and writes nothing.
     if (trigger === 'QUOTATION_APPROVED') {
-      const quotation =
-        await this.prisma.quotation.findUnique({
-          where: { id: referenceId },
-        });
-
-      if (!quotation) {
-        return {
-          success: false,
-          message: 'Quotation not found',
-        };
-      }
-
-      const salesOrder =
-        await this.prisma.salesOrder.create({
-          data: {
-            salesOrderCode: 'SO-' + Date.now(),
-            orderDate: new Date(),
-            totalAmount: quotation.totalAmount,
-            quotationId: quotation.id,
-            status: 'OPEN',
-          },
-        });
-
       return {
-        success: true,
-        action: 'CREATE_SALES_ORDER',
+        success: false,
+        action: 'NONE',
         referenceId,
-        salesOrder,
         message:
-          'Workflow executed: Sales Order auto-created',
+          'Sales Orders are no longer created by workflow. Create a Proforma Invoice from the approved Quotation, then a Sales Order from the approved Proforma Invoice.',
       };
     }
 

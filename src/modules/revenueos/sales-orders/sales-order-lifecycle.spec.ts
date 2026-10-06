@@ -100,6 +100,7 @@ class FakeDb {
   dispatches: any[] = [];
   invoices: any[] = [];
   proformas = new Map<string, any>();
+  quotations = new Map<string, any>();
   items = new Map<string, any>();
   seller = new Map<string, any>();
   buyer = new Map<string, any>();
@@ -375,6 +376,13 @@ class FakeDb {
           self.project(self.proformas.get(a.where.id)),
         ),
       },
+      quotation: {
+        findUniqueOrThrow: jest.fn(async (a: any) => {
+          const row = self.quotations.get(a.where.id);
+          if (!row) throw new Error('quotation not found');
+          return self.project(row, a.select);
+        }),
+      },
       inventoryItem: {
         findUnique: jest.fn(async (a: any) =>
           self.project(self.items.get(a.where.id)),
@@ -434,6 +442,11 @@ class FakeDb {
             await self.lock(owner, `proforma:${id}`, 'UPDATE');
           }
           return self.proformas.has(id) ? [{ id }] : [];
+        }
+        if (sql.includes('FROM "Quotation"') && sql.includes('FOR SHARE')) {
+          if (inTx) await self.lock(owner, `quotation:${id}`, 'SHARE');
+          const q = self.quotations.get(id);
+          return q ? [{ status: q.status }] : [];
         }
         if (sql.includes('FROM "SalesOrder"')) {
           const forUpdate = sql.includes('FOR UPDATE');
@@ -564,6 +577,7 @@ describe('Sales Order pre-dispatch lifecycle', () => {
     fake.events.length = 0;
     fake.prs.length = 0;
     fake.proformas.clear();
+    fake.quotations.clear();
     fake.items.clear();
     fake.seller.clear();
     fake.buyer.clear();
@@ -583,21 +597,25 @@ describe('Sales Order pre-dispatch lifecycle', () => {
     fake.failEvents = false;
     fake.users.set(USER_1, { id: USER_1, fullName: 'Asha Accounts' });
     fake.users.set(USER_2, { id: USER_2, fullName: 'Ravi Reviewer' });
-    fake.proformas.set(PROFORMA, {
-      id: PROFORMA,
-      customerStatus: 'APPROVED',
-      totalAmount: 275000,
-    });
-    fake.proformas.set(PROFORMA_DUP, {
-      id: PROFORMA_DUP,
-      customerStatus: 'APPROVED',
-      totalAmount: 250000,
-    });
-    fake.proformas.set(PROFORMA_PENDING, {
-      id: PROFORMA_PENDING,
-      customerStatus: 'PENDING',
-      totalAmount: 100000,
-    });
+    // Every Proforma hangs off its own APPROVED Quotation with the same total.
+    const seedProforma = (id: string, status: string, total: number) => {
+      const quotationId = `quotation-of-${id}`;
+      fake.quotations.set(quotationId, {
+        id: quotationId,
+        status: 'APPROVED',
+        totalAmount: total,
+      });
+      fake.proformas.set(id, {
+        id,
+        quotationId,
+        customerStatus: status,
+        totalAmount: total,
+        validityDate: null,
+      });
+    };
+    seedProforma(PROFORMA, 'APPROVED', 275000);
+    seedProforma(PROFORMA_DUP, 'APPROVED', 250000);
+    seedProforma(PROFORMA_PENDING, 'PENDING', 100000);
     fake.items.set(ITEM, { id: ITEM, availableQty: 100 });
     fake.seller.set(SELLER, { id: SELLER, stateCode: '27' });
     fake.buyer.set(BUYER, {
@@ -1373,8 +1391,88 @@ describe('Sales Order pre-dispatch lifecycle', () => {
 
     it('does not recalculate tax: the Proforma total is used as it is', async () => {
       fake.proformas.get(PROFORMA).totalAmount = 323950.5;
+      fake.quotations.get(`quotation-of-${PROFORMA}`).totalAmount = 323950.5;
       const res = await createOrder(validOrder);
       expect(res.body.totalAmount).toBe(323950.5);
+    });
+
+    describe('what the approved Proforma and its Quotation must still satisfy', () => {
+      const QUOTE = `quotation-of-${PROFORMA}`;
+      const startOfTodayUtc = () => {
+        const n = new Date();
+        return new Date(
+          Date.UTC(n.getUTCFullYear(), n.getUTCMonth(), n.getUTCDate()),
+        );
+      };
+      const daysFromToday = (d: number) =>
+        new Date(startOfTodayUtc().getTime() + d * 86_400_000);
+
+      it('refuses an expired Proforma (409) and creates nothing', async () => {
+        fake.proformas.get(PROFORMA).validityDate = daysFromToday(-1);
+        const res = await createOrder(validOrder);
+        expect(res.status).toBe(409);
+        expect(res.body.message).toMatch(/expired on \d{4}-\d{2}-\d{2}/);
+        expect(fake.orders.size).toBe(0);
+        expect(fake.prs).toHaveLength(0);
+      });
+
+      it('accepts a Proforma through the end of its validity date, and one with no validity date', async () => {
+        fake.proformas.get(PROFORMA).validityDate = daysFromToday(0);
+        expect((await createOrder(validOrder)).status).toBe(201);
+
+        fake.orders.clear();
+        fake.proformas.get(PROFORMA).validityDate = daysFromToday(30);
+        expect((await createOrder(validOrder)).status).toBe(201);
+
+        fake.orders.clear();
+        fake.proformas.get(PROFORMA).validityDate = null;
+        expect((await createOrder(validOrder)).status).toBe(201);
+      });
+
+      it.each(['DRAFT', 'REVISED', 'REJECTED'])(
+        'refuses a Proforma whose Quotation is %s (409)',
+        async (status) => {
+          fake.quotations.get(QUOTE).status = status;
+          const res = await createOrder(validOrder);
+          expect(res.status).toBe(409);
+          expect(res.body.message).toMatch(
+            new RegExp(`Quotation is APPROVED \\(now ${status}\\)`),
+          );
+          expect(fake.orders.size).toBe(0);
+        },
+      );
+
+      it("refuses a Proforma whose total no longer matches its Quotation's (409)", async () => {
+        fake.quotations.get(QUOTE).totalAmount = 275000.02;
+        const res = await createOrder(validOrder);
+        expect(res.status).toBe(409);
+        expect(res.body.message).toMatch(
+          /no longer matches its Quotation total/,
+        );
+        expect(fake.orders.size).toBe(0);
+      });
+
+      it('tolerates a paisa of floating-point difference and still uses the Proforma total', async () => {
+        fake.quotations.get(QUOTE).totalAmount = 275000.01;
+        const res = await createOrder(validOrder);
+        expect(res.status).toBe(201);
+        expect(res.body.totalAmount).toBe(275000);
+      });
+
+      it('takes a shared lock on the Quotation while the order is created', async () => {
+        const locks: string[] = [];
+        const original = fake.lock.bind(fake);
+        fake.lock = async (...a: any[]) => {
+          locks.push(`${a[1]}:${a[2]}`);
+          return original(...a);
+        };
+        await createOrder(validOrder);
+        fake.lock = original;
+        expect(locks).toEqual([
+          `proforma:${PROFORMA}:UPDATE`,
+          `quotation:${QUOTE}:SHARE`,
+        ]);
+      });
     });
 
     it('uses CGST_SGST when seller and buyer are in the same state', async () => {

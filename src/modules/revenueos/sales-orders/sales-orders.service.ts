@@ -20,6 +20,15 @@ import {
   requireActor,
   requireSalesOrder,
 } from './sales-order-lifecycle';
+import { QUOTATION_STATUS } from '../quotations/quotation-lifecycle';
+import {
+  conflictExpired,
+  conflictParentQuotationNotApproved,
+  conflictTotalsDiffer,
+  isProformaExpired,
+  readQuotationStatusShared,
+  totalsMatch,
+} from '../proforma-invoices/proforma-lifecycle';
 
 // A client-sent total may differ from the Proforma's by no more than a paisa
 // of floating-point noise.
@@ -29,7 +38,9 @@ const TOTAL_TOLERANCE = 0.005;
 export class SalesOrdersService {
   constructor(private prisma: PrismaService) {}
 
-  // Creates a Sales Order from an APPROVED Proforma Invoice.
+  // Creates a Sales Order from an APPROVED Proforma Invoice. This is the only
+  // way a Sales Order is created: the Proforma must not have expired, its
+  // Quotation must still be APPROVED, and their totals must agree.
   //
   // The order's total is the approved Proforma's totalAmount: the client's
   // number is never stored, and a different one is refused. No tax is
@@ -63,6 +74,44 @@ export class SalesOrdersService {
         throw new ConflictException(
           'Sales Order can only be created from APPROVED Proforma Invoice',
         );
+      }
+
+      // ==========================================================
+      // 1b. The Proforma must still be valid, and so must its Quotation
+      //
+      // Valid through the end of its validity date. The Quotation is read
+      // under a shared lock, so it cannot be revised, rejected or re-approved
+      // while this order is being created, and the totals compared are the
+      // ones the order is built from.
+      // ==========================================================
+      const now = new Date();
+
+      if (
+        proforma.validityDate &&
+        isProformaExpired(proforma.validityDate, now)
+      ) {
+        throw conflictExpired(
+          proforma.validityDate,
+          'used to create a Sales Order',
+        );
+      }
+
+      const quotationStatus = await readQuotationStatusShared(
+        tx,
+        proforma.quotationId,
+      );
+
+      if (quotationStatus !== QUOTATION_STATUS.APPROVED) {
+        throw conflictParentQuotationNotApproved(quotationStatus);
+      }
+
+      const quotation = await tx.quotation.findUniqueOrThrow({
+        where: { id: proforma.quotationId },
+        select: { totalAmount: true },
+      });
+
+      if (!totalsMatch(proforma.totalAmount, quotation.totalAmount)) {
+        throw conflictTotalsDiffer(proforma.totalAmount, quotation.totalAmount);
       }
 
       // ==========================================================
