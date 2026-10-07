@@ -386,6 +386,14 @@ function makeDb() {
         return { count: rows.length };
       },
     },
+    customerGSTRegistration: {
+      findMany: async ({ where }: any) =>
+        state.gst.filter(
+          (g) =>
+            g.customerId === where.customerId &&
+            (where.isActive === undefined || g.isActive === where.isActive),
+        ),
+    },
     customerEvent: {
       create: async ({ data }: any) => {
         if (state.eventFailure) throw new Error('event failed');
@@ -1120,6 +1128,37 @@ describe('Customer master over HTTP', () => {
         .patch(`/customers/${A}`)
         .send({ panNumber: 'ABCDE9999F' })
         .expect(200);
+    });
+
+    it("refuses a PAN that disagrees with the GSTIN of an active registration, but not an inactive one's", async () => {
+      ctx.state.gst.push({
+        id: 'g1',
+        customerId: A,
+        gstin: '24XYZAB1234K1Z1',
+        isActive: true,
+      });
+
+      const res = await http()
+        .patch(`/customers/${A}`)
+        .send({ panNumber: 'ABCDE1234F' })
+        .expect(409);
+      expect(res.body.code).toBe('PAN_MISMATCHES_GST');
+      expect(ctx.state.customers[0].panNumber).toBe('XYZAB1234K');
+      expect(ctx.state.events).toHaveLength(0);
+
+      // the same PAN in other letters of case, or clearing it, still agrees
+      await http()
+        .patch(`/customers/${A}`)
+        .send({ panNumber: 'xyzab1234k' })
+        .expect(200);
+      await http().patch(`/customers/${A}`).send({ panNumber: '' }).expect(200);
+
+      ctx.state.gst[0].isActive = false;
+      await http()
+        .patch(`/customers/${A}`)
+        .send({ panNumber: 'ABCDE1234F' })
+        .expect(200);
+      expect(ctx.state.customers[0].panNumber).toBe('ABCDE1234F');
     });
 
     it('takes the name lock only when the name changes', async () => {

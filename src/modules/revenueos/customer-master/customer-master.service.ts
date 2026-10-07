@@ -22,6 +22,7 @@ import {
   conflictAlreadyActive,
   conflictAlreadyInactive,
   conflictCustomerInactive,
+  conflictPanMismatchesGst,
   conflictDuplicatePan,
   findCustomerMatches,
   isUniqueViolation,
@@ -34,6 +35,7 @@ import {
   takeCustomerCodeNumber,
   CustomerMatch,
 } from './customer-lifecycle';
+import { gstinMatchesPan } from '../customer-gst/customer-gst-values';
 import {
   CUSTOMER_EDITABLE_FIELDS,
   CustomerEditableField,
@@ -144,7 +146,12 @@ export class CustomerMasterService {
     return this.prisma.customerEvent.findMany({
       where: { customerId: id },
       orderBy: [{ occurredAt: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
-      include: { actor: { select: CUSTOMER_ACTOR_SELECT } },
+      include: {
+        actor: { select: CUSTOMER_ACTOR_SELECT },
+        gstRegistration: {
+          select: { id: true, gstin: true, branchName: true, legalName: true },
+        },
+      },
     });
   }
 
@@ -246,6 +253,19 @@ export class CustomerMasterService {
               excludeId: id,
             }),
           );
+        }
+
+        // A customer's PAN and the GSTINs of its active registrations must
+        // keep agreeing (a GSTIN carries its holder's PAN).
+        if (newPan !== null) {
+          const registrations = await tx.customerGSTRegistration.findMany({
+            where: { customerId: id, isActive: true },
+            select: { gstin: true },
+          });
+
+          if (registrations.some((r) => !gstinMatchesPan(r.gstin, newPan))) {
+            throw conflictPanMismatchesGst();
+          }
         }
 
         const updated = await tx.customer.update({

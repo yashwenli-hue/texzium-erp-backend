@@ -1484,6 +1484,10 @@ model CustomerEvent {
   remarks    String?
   changes    Json?
 
+  // Set on an event about one GST registration of the customer.
+  gstRegistrationId String?
+  gstRegistration   CustomerGSTRegistration? @relation(fields: [gstRegistrationId], references: [id])
+
   actorId String?
   actor   User?   @relation("CustomerEventActor", fields: [actorId], references: [id])
 
@@ -1494,6 +1498,7 @@ model CustomerEvent {
   customer Customer @relation(fields: [customerId], references: [id])
 
   @@index([customerId, occurredAt])
+  @@index([gstRegistrationId])
   @@index([actorId])
 }
 
@@ -1515,7 +1520,8 @@ model CustomerGSTRegistration {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  customer Customer @relation(fields: [customerId], references: [id])
+  customer Customer        @relation(fields: [customerId], references: [id])
+  events   CustomerEvent[]
 }
 
 model Vendor {

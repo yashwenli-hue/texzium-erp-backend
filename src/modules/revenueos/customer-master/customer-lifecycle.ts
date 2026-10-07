@@ -5,8 +5,6 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 
-import { CustomerChanges } from './customer-values';
-
 // The Customer lifecycle:
 //
 //   ACTIVE <-> INACTIVE
@@ -25,6 +23,11 @@ export const CUSTOMER_EVENT_ACTION = {
   CUSTOMER_UPDATED: 'CUSTOMER_UPDATED',
   CUSTOMER_DEACTIVATED: 'CUSTOMER_DEACTIVATED',
   CUSTOMER_REACTIVATED: 'CUSTOMER_REACTIVATED',
+  GST_ADDED: 'GST_ADDED',
+  GST_UPDATED: 'GST_UPDATED',
+  GST_DEACTIVATED: 'GST_DEACTIVATED',
+  GST_REACTIVATED: 'GST_REACTIVATED',
+  GST_DEFAULT_CHANGED: 'GST_DEFAULT_CHANGED',
 } as const;
 
 export const CUSTOMER_NOT_FOUND_MESSAGE = 'Customer not found.';
@@ -122,7 +125,8 @@ export function recordCustomerEvent(
     fromStatus?: string;
     toStatus?: string;
     remarks?: string;
-    changes?: CustomerChanges;
+    changes?: Prisma.InputJsonObject;
+    gstRegistrationId?: string;
     actorId: string;
     occurredAt: Date;
   },
@@ -135,6 +139,7 @@ export function recordCustomerEvent(
       toStatus: event.toStatus,
       remarks: event.remarks,
       changes: event.changes,
+      gstRegistrationId: event.gstRegistrationId,
       actorId: event.actorId,
       occurredAt: event.occurredAt,
     },
@@ -270,6 +275,7 @@ export const CUSTOMER_CONFLICT_CODE = {
   CUSTOMER_INACTIVE: 'CUSTOMER_INACTIVE',
   ALREADY_INACTIVE: 'ALREADY_INACTIVE',
   ALREADY_ACTIVE: 'ALREADY_ACTIVE',
+  PAN_MISMATCHES_GST: 'PAN_MISMATCHES_GST',
 } as const;
 
 type ExistingCustomer = Pick<
@@ -277,16 +283,18 @@ type ExistingCustomer = Pick<
   'id' | 'customerCode' | 'customerName' | 'isActive'
 >;
 
-function conflict(
+export function conflict(
   message: string,
   code: string,
   existing?: ExistingCustomer,
+  extra?: Record<string, unknown>,
 ): ConflictException {
   return new ConflictException({
     statusCode: 409,
     error: 'Conflict',
     message,
     code,
+    ...extra,
     ...(existing
       ? {
           existing: {
@@ -322,10 +330,16 @@ export function conflictDuplicateName(
   );
 }
 
-export function conflictCustomerInactive(): ConflictException {
+export function conflictCustomerInactive(
+  message = 'This customer is inactive. Reactivate it to edit it.',
+): ConflictException {
+  return conflict(message, CUSTOMER_CONFLICT_CODE.CUSTOMER_INACTIVE);
+}
+
+export function conflictPanMismatchesGst(): ConflictException {
   return conflict(
-    'This customer is inactive. Reactivate it to edit it.',
-    CUSTOMER_CONFLICT_CODE.CUSTOMER_INACTIVE,
+    "This PAN does not match the GSTIN of one or more of the customer's active GST registrations. Deactivate those registrations first, or use the PAN they carry.",
+    CUSTOMER_CONFLICT_CODE.PAN_MISMATCHES_GST,
   );
 }
 
