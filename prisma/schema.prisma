@@ -67,6 +67,8 @@ model User {
   salesOrderEvents   SalesOrderEvent[] @relation("SalesOrderEventActor")
   quotationEvents    QuotationEvent[]  @relation("QuotationEventActor")
   proformaEvents     ProformaEvent[]   @relation("ProformaEventActor")
+  deactivatedCustomers Customer[]      @relation("CustomerDeactivatedBy")
+  customerEvents     CustomerEvent[]   @relation("CustomerEventActor")
 }
 
 model Role {
@@ -1456,7 +1458,43 @@ model Customer {
   isVendor       Boolean  @default(false)
   linkedVendorId String?
 
+  // Soft lifecycle. An inactive customer is kept with all its documents. The
+  // deactivated* fields describe the CURRENT deactivation and are cleared on
+  // reactivation; the permanent history is in CustomerEvent.
+  deactivatedAt      DateTime?
+  deactivatedById    String?
+  deactivatedBy      User?     @relation("CustomerDeactivatedBy", fields: [deactivatedById], references: [id])
+  deactivationReason String?
+
   gstRegistrations CustomerGSTRegistration[]
+  events           CustomerEvent[]
+
+  @@index([deactivatedById])
+}
+
+// One row per lifecycle event of a Customer. "changes" is set on an edit only:
+// { field: { from, to } } for each field that changed.
+model CustomerEvent {
+  id         String @id @default(uuid())
+  customerId String
+
+  action     String
+  fromStatus String?
+  toStatus   String?
+  remarks    String?
+  changes    Json?
+
+  actorId String?
+  actor   User?   @relation("CustomerEventActor", fields: [actorId], references: [id])
+
+  // When the event happened; createdAt is when the row was recorded.
+  occurredAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+
+  customer Customer @relation(fields: [customerId], references: [id])
+
+  @@index([customerId, occurredAt])
+  @@index([actorId])
 }
 
 model CustomerGSTRegistration {
