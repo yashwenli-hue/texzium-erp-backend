@@ -11,6 +11,7 @@ import {
 } from '@nestjs/common';
 
 import { CustomerMasterService } from './customer-master.service';
+import { CustomerOverviewService } from './customer-overview.service';
 import { CreateCustomerDto } from './dto/create-customer.dto';
 import { UpdateCustomerDto } from './dto/update-customer.dto';
 import {
@@ -28,7 +29,10 @@ type AuthenticatedRequest = { user?: { id?: string } };
 @Controller('customers')
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 export class CustomerMasterController {
-  constructor(private readonly customerService: CustomerMasterService) {}
+  constructor(
+    private readonly customerService: CustomerMasterService,
+    private readonly overviewService: CustomerOverviewService,
+  ) {}
 
   @Post()
   @Permissions('customers.create')
@@ -53,6 +57,13 @@ export class CustomerMasterController {
   @Permissions('customers.view')
   findOne(@Param('id') id: string) {
     return this.customerService.findOne(id);
+  }
+
+  // The customer's whole quote-to-cash chain, followed by id, in one read.
+  @Get(':id/overview')
+  @Permissions('customers.view')
+  overview(@Param('id') id: string) {
+    return this.overviewService.get(id);
   }
 
   @Get(':id/events')

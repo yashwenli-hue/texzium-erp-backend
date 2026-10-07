@@ -104,6 +104,7 @@ class FakeDb {
   items = new Map<string, any>();
   seller = new Map<string, any>();
   buyer = new Map<string, any>();
+  customers = new Map<string, any>();
   users = new Map<string, any>();
   seq = 100;
   clock = 0; // orders every write, so "written after the cancellation" is checkable
@@ -443,6 +444,11 @@ class FakeDb {
           }
           return self.proformas.has(id) ? [{ id }] : [];
         }
+        if (sql.includes('FROM "Customer"') && sql.includes('FOR SHARE')) {
+          if (inTx) await self.lock(owner, `customer:${id}`, 'SHARE');
+          const c = self.customers.get(id);
+          return c ? [{ isActive: c.isActive }] : [];
+        }
         if (sql.includes('FROM "Quotation"') && sql.includes('FOR SHARE')) {
           if (inTx) await self.lock(owner, `quotation:${id}`, 'SHARE');
           const q = self.quotations.get(id);
@@ -581,6 +587,7 @@ describe('Sales Order pre-dispatch lifecycle', () => {
     fake.items.clear();
     fake.seller.clear();
     fake.buyer.clear();
+    fake.customers.clear();
     fake.users.clear();
     fake.purchaseOrders.length = 0;
     fake.reservations.length = 0;
@@ -1594,6 +1601,138 @@ describe('Sales Order pre-dispatch lifecycle', () => {
   });
 
   // -------------------------------------------------------------------------
+  describe('the registrations and the customer of an order', () => {
+    const QUOTE = `quotation-of-${PROFORMA}`;
+    const CUSTOMER = 'customer-1';
+    const OTHER_BUYER = uid(43);
+
+    const withQuotation = (over: Record<string, unknown>) =>
+      Object.assign(fake.quotations.get(QUOTE), over);
+
+    const linkCustomer = (isActive = true) => {
+      fake.customers.set(CUSTOMER, { id: CUSTOMER, isActive });
+      withQuotation({ opportunity: { customerId: CUSTOMER } });
+      fake.buyer.set(BUYER, {
+        id: BUYER,
+        stateCode: '24',
+        stateName: 'Gujarat',
+        customerId: CUSTOMER,
+        isActive: true,
+      });
+      fake.buyer.set(OTHER_BUYER, {
+        id: OTHER_BUYER,
+        stateCode: '24',
+        stateName: 'Gujarat',
+        customerId: 'someone-else',
+        isActive: true,
+      });
+    };
+
+    describe("the Quotation's own registrations", () => {
+      it('accepts the registrations the Quotation was made with', async () => {
+        withQuotation({ buyerGstId: BUYER, sellerGstId: SELLER });
+        const res = await createOrder(validOrder);
+        expect(res.status).toBe(201);
+        expect(res.body).toMatchObject({
+          buyerGstId: BUYER,
+          sellerGstId: SELLER,
+        });
+      });
+
+      it('refuses a different buyer registration', async () => {
+        withQuotation({
+          buyerGstId: 'the-quotations-buyer',
+          sellerGstId: SELLER,
+        });
+        const res = await createOrder(validOrder);
+        expect(res.status).toBe(400);
+        expect(res.body.code).toBe('BUYER_GST_DIFFERS');
+        expect(fake.orders.size).toBe(0);
+      });
+
+      it('refuses a different seller registration', async () => {
+        withQuotation({
+          buyerGstId: BUYER,
+          sellerGstId: 'the-quotations-seller',
+        });
+        const res = await createOrder(validOrder);
+        expect(res.status).toBe(400);
+        expect(res.body.code).toBe('SELLER_GST_DIFFERS');
+        expect(fake.orders.size).toBe(0);
+      });
+
+      it('leaves a Quotation that has no registrations as it was: the client chooses', async () => {
+        withQuotation({ buyerGstId: null, sellerGstId: null });
+        const res = await createOrder(validOrder);
+        expect(res.status).toBe(201);
+      });
+    });
+
+    describe('an order under an opportunity that has a customer', () => {
+      beforeEach(() => linkCustomer());
+
+      it('is created, holding the customer in shared mode after the Proforma and the Quotation', async () => {
+        const locks: string[] = [];
+        const original = fake.lock.bind(fake);
+        fake.lock = async (...a: any[]) => {
+          locks.push(`${a[1]}:${a[2]}`);
+          return original(...a);
+        };
+        const res = await createOrder(validOrder);
+        fake.lock = original;
+
+        expect(res.status).toBe(201);
+        expect(locks).toEqual([
+          `proforma:${PROFORMA}:UPDATE`,
+          `quotation:${QUOTE}:SHARE`,
+          `customer:${CUSTOMER}:SHARE`,
+        ]);
+      });
+
+      it('is refused once the customer is inactive', async () => {
+        fake.customers.get(CUSTOMER).isActive = false;
+        const res = await createOrder(validOrder);
+        expect(res.status).toBe(409);
+        expect(res.body.code).toBe('CUSTOMER_INACTIVE');
+        expect(fake.orders.size).toBe(0);
+        expect(fake.prs).toHaveLength(0);
+      });
+
+      it("is refused with another customer's buyer registration, when the Quotation has none to compare", async () => {
+        const res = await createOrder({
+          ...validOrder,
+          buyerGstId: OTHER_BUYER,
+        });
+        expect(res.status).toBe(400);
+        expect(res.body.code).toBe('BUYER_GST_NOT_CUSTOMERS');
+        expect(fake.orders.size).toBe(0);
+      });
+
+      it('is refused with a buyer registration that has been deactivated', async () => {
+        fake.buyer.get(BUYER).isActive = false;
+        const res = await createOrder(validOrder);
+        expect(res.status).toBe(409);
+        expect(res.body.code).toBe('GST_INACTIVE');
+        expect(fake.orders.size).toBe(0);
+      });
+    });
+
+    describe('an order under an opportunity without a customer (legacy)', () => {
+      it('is not checked against any customer', async () => {
+        withQuotation({ opportunity: { customerId: null } });
+        fake.buyer.set(BUYER, {
+          id: BUYER,
+          stateCode: '24',
+          stateName: 'Gujarat',
+          customerId: 'whoever',
+          isActive: false,
+        });
+        const res = await createOrder(validOrder);
+        expect(res.status).toBe(201);
+      });
+    });
+  });
+
   describe('concurrency', () => {
     const settle = (calls: request.Test[]) => Promise.all(calls);
     const statuses = (rs: Array<{ status: number }>) =>

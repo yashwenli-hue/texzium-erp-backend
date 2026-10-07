@@ -21,6 +21,12 @@ import {
   requireSalesOrder,
 } from './sales-order-lifecycle';
 import { QUOTATION_STATUS } from '../quotations/quotation-lifecycle';
+import { requireActiveCustomerShared } from '../customer-master/customer-lifecycle';
+import {
+  badRequestBuyerGstNotCustomers,
+  badRequestOrderGstDiffers,
+  conflictRegistrationInactive,
+} from '../customer-gst/customer-gst-lifecycle';
 import {
   conflictExpired,
   conflictParentQuotationNotApproved,
@@ -107,7 +113,12 @@ export class SalesOrdersService {
 
       const quotation = await tx.quotation.findUniqueOrThrow({
         where: { id: proforma.quotationId },
-        select: { totalAmount: true },
+        select: {
+          totalAmount: true,
+          sellerGstId: true,
+          buyerGstId: true,
+          opportunity: { select: { customerId: true } },
+        },
       });
 
       if (!totalsMatch(proforma.totalAmount, quotation.totalAmount)) {
@@ -173,6 +184,42 @@ export class SalesOrdersService {
 
       if (!buyerGst) {
         throw new NotFoundException('Buyer GST not found');
+      }
+
+      // ==========================================================
+      // 6b. The registrations are the Quotation's, and the customer's
+      //
+      // An order is made with the GST registrations its Quotation was made
+      // with (when it has them: older quotations have none, and their orders
+      // are unchanged). When the Quotation's opportunity has a customer, that
+      // customer must still be active (and stays so until this commits), and
+      // the buyer registration must be one of its own and active. An
+      // opportunity without a customer is a legacy one and is not checked.
+      // ==========================================================
+      if (quotation.sellerGstId && data.sellerGstId !== quotation.sellerGstId) {
+        throw badRequestOrderGstDiffers('seller');
+      }
+
+      if (quotation.buyerGstId && data.buyerGstId !== quotation.buyerGstId) {
+        throw badRequestOrderGstDiffers('buyer');
+      }
+
+      const customerId = quotation.opportunity?.customerId;
+
+      if (customerId) {
+        await requireActiveCustomerShared(
+          tx,
+          customerId,
+          'This customer is inactive. Reactivate it before creating a Sales Order for it.',
+        );
+
+        if (buyerGst.customerId !== customerId) {
+          throw badRequestBuyerGstNotCustomers();
+        }
+
+        if (!buyerGst.isActive) {
+          throw conflictRegistrationInactive('buyer');
+        }
       }
 
       // ==========================================================

@@ -1,4 +1,8 @@
-import { Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../../../core/database/prisma.service';
 import { CreateQuotationDto } from './dto/create-quotation.dto';
 import { ApproveQuotationDto } from './dto/approve-quotation.dto';
@@ -21,76 +25,114 @@ import {
   requireQuotationActor,
   setQuotationStatusIfStill,
 } from './quotation-lifecycle';
+import { requireActiveCustomerShared } from '../customer-master/customer-lifecycle';
+import {
+  conflictOpportunityNotLinked,
+  lockOpportunityShared,
+} from '../opportunities/opportunity-customer';
+import {
+  badRequestBuyerGstNotCustomers,
+  conflictRegistrationInactive,
+} from '../customer-gst/customer-gst-lifecycle';
 
 @Injectable()
 export class QuotationsService {
   constructor(private prisma: PrismaService) {}
 
+  // Creates a DRAFT quotation for an opportunity that has a customer.
+  //
+  // The customer comes from the opportunity (never from the request), so the
+  // buyer GST registration has to be one of that customer's, and active; the
+  // customer has to be active too. Everything is read and decided in one
+  // transaction that holds the opportunity (shared) and then the customer
+  // (shared): the customer can no longer be linked, changed or unlinked, be
+  // deactivated, or have its registrations changed until this commits. An
+  // opportunity without a customer is a legacy one: link a customer to it
+  // first.
   async create(data: CreateQuotationDto, actorId: string | undefined) {
     const actor = await requireQuotationActor(this.prisma, actorId);
 
-    // 1. Validate Opportunity
-    const opportunity = await this.prisma.opportunity.findUnique({
-      where: { id: data.opportunityId },
-    });
-
-    if (!opportunity) {
-      throw new Error('Opportunity not found');
-    }
-
-    // 2. Validate Inventory Item
-    const inventory = await this.prisma.inventoryItem.findUnique({
-      where: { id: data.inventoryItemId },
-      include: {
-        hsnMaster: true,
-      },
-    });
-
-    if (!inventory) {
-      throw new Error('Inventory item not found');
-    }
-
-    if (!inventory.hsnMaster) {
-      throw new Error('HSN not mapped to inventory item');
-    }
-
-    // 3. Validate Seller GST
-    const sellerGst = await this.prisma.companyGSTRegistration.findUnique({
-      where: { id: data.sellerGstId },
-    });
-
-    if (!sellerGst) {
-      throw new Error('Seller GST not found');
-    }
-
-    // 4. Validate Buyer GST
-    const buyerGst = await this.prisma.customerGSTRegistration.findUnique({
-      where: { id: data.buyerGstId },
-    });
-
-    if (!buyerGst) {
-      throw new Error('Buyer GST not found');
-    }
-
-    // 5. Tax Type Logic
-    let taxType = '';
-    let gstAmount = 0;
-
-    const taxableAmount = data.quantity * data.unitPrice;
-    const gstRate = inventory.hsnMaster.gstRate;
-
-    if (sellerGst.stateCode === buyerGst.stateCode) {
-      taxType = 'CGST_SGST';
-      gstAmount = (taxableAmount * gstRate) / 100;
-    } else {
-      taxType = 'IGST';
-      gstAmount = (taxableAmount * gstRate) / 100;
-    }
-
-    const totalAmount = taxableAmount + gstAmount;
-
-    // 6. Create Quotation, with the event that starts its history
     return this.prisma.$transaction(async (tx) => {
+      // 1. Opportunity, and its customer
+      const { customerId } = await lockOpportunityShared(
+        tx,
+        data.opportunityId,
+      );
+
+      if (!customerId) {
+        throw conflictOpportunityNotLinked();
+      }
+
+      await requireActiveCustomerShared(
+        tx,
+        customerId,
+        'This customer is inactive. Reactivate it before creating a quotation for it.',
+      );
+
+      // 2. Inventory item
+      const inventory = await tx.inventoryItem.findUnique({
+        where: { id: data.inventoryItemId },
+        include: {
+          hsnMaster: true,
+        },
+      });
+
+      if (!inventory) {
+        throw new NotFoundException('Inventory item not found');
+      }
+
+      if (!inventory.hsnMaster) {
+        throw new BadRequestException('HSN not mapped to inventory item');
+      }
+
+      // 3. Seller GST
+      const sellerGst = await tx.companyGSTRegistration.findUnique({
+        where: { id: data.sellerGstId },
+      });
+
+      if (!sellerGst) {
+        throw new NotFoundException('Seller GST not found');
+      }
+
+      if (!sellerGst.isActive) {
+        throw conflictRegistrationInactive('seller');
+      }
+
+      // 4. Buyer GST: the customer's own, and active
+      const buyerGst = await tx.customerGSTRegistration.findUnique({
+        where: { id: data.buyerGstId },
+      });
+
+      if (!buyerGst) {
+        throw new NotFoundException('Buyer GST not found');
+      }
+
+      if (buyerGst.customerId !== customerId) {
+        throw badRequestBuyerGstNotCustomers();
+      }
+
+      if (!buyerGst.isActive) {
+        throw conflictRegistrationInactive('buyer');
+      }
+
+      // 5. Tax type
+      let taxType = '';
+      let gstAmount = 0;
+
+      const taxableAmount = data.quantity * data.unitPrice;
+      const gstRate = inventory.hsnMaster.gstRate;
+
+      if (sellerGst.stateCode === buyerGst.stateCode) {
+        taxType = 'CGST_SGST';
+        gstAmount = (taxableAmount * gstRate) / 100;
+      } else {
+        taxType = 'IGST';
+        gstAmount = (taxableAmount * gstRate) / 100;
+      }
+
+      const totalAmount = taxableAmount + gstAmount;
+
+      // 6. Create Quotation, with the event that starts its history
       const quotation = await tx.quotation.create({
         data: {
           opportunityId: data.opportunityId,

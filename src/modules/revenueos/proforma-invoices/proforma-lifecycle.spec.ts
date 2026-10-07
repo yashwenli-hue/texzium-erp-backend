@@ -127,6 +127,7 @@ function makeDb() {
     proformas: Row[];
     orders: Row[];
     events: Row[];
+    customers: Row[];
     users: Row[];
     eventFailure: boolean;
   } = {
@@ -134,6 +135,7 @@ function makeDb() {
     proformas: [],
     orders: [],
     events: [],
+    customers: [],
     users: [{ id: USER, fullName: 'Asha Approver' }],
     eventFailure: false,
   };
@@ -145,6 +147,10 @@ function makeDb() {
   const db: any = {
     $queryRaw: async (strings: TemplateStringsArray, id: string) => {
       const sql = strings.join('?');
+      if (sql.includes('customer:lock-shared')) {
+        const c = state.customers.find((x) => x.id === id);
+        return c ? [{ isActive: c.isActive }] : [];
+      }
       if (sql.includes('"ProformaInvoice"')) {
         const p = state.proformas.find((x) => x.id === id);
         return p ? [{ customerStatus: p.customerStatus }] : [];
@@ -374,6 +380,32 @@ describe('Proforma lifecycle over HTTP', () => {
   });
 
   describe('create', () => {
+    it("is refused once the Quotation's customer is inactive, and is unaffected when it has none", async () => {
+      const CUSTOMER = uid(88);
+      ctx.state.customers.push({ id: CUSTOMER, isActive: false });
+      ctx.state.quotations.push(
+        quote({ opportunity: { customerId: CUSTOMER } }),
+      );
+
+      const res = await http()
+        .post('/proforma-invoices')
+        .send(createBody())
+        .expect(409);
+      expect(res.body.code).toBe('CUSTOMER_INACTIVE');
+      expect(ctx.state.proformas).toHaveLength(0);
+      expect(ctx.state.events).toHaveLength(0);
+
+      // active again: created
+      ctx.state.customers[0].isActive = true;
+      await http().post('/proforma-invoices').send(createBody()).expect(201);
+
+      // a legacy Quotation (its opportunity has no customer) is not checked
+      ctx.state.proformas.length = 0;
+      ctx.state.quotations[0].opportunity = { customerId: null };
+      ctx.state.customers[0].isActive = false;
+      await http().post('/proforma-invoices').send(createBody()).expect(201);
+    });
+
     it('creates a PENDING Proforma with the Quotation total, and records who and when', async () => {
       ctx.state.quotations.push(quote());
 

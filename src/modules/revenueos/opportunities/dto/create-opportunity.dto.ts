@@ -4,6 +4,7 @@ import {
   IsISO8601,
   IsNotEmpty,
   IsNumber,
+  IsOptional,
   IsPositive,
   IsString,
   IsUUID,
@@ -37,4 +38,11 @@ export class CreateOpportunityDto {
 
   @IsISO8601({ strict: true })
   expectedCloseDate: string;
+
+  // The customer the deal is for. Optional: an opportunity can be created
+  // first and linked later. It can also be linked later with
+  // PATCH /opportunities/:id/customer.
+  @IsOptional()
+  @IsUUID()
+  customerId?: string;
 }

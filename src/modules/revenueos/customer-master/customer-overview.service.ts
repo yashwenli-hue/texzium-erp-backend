@@ -1,0 +1,266 @@
+import { Injectable, NotFoundException } from '@nestjs/common';
+
+import { PrismaService } from '../../../core/database/prisma.service';
+import { isProformaExpired } from '../proforma-invoices/proforma-lifecycle';
+import {
+  QUOTATION_STATUS,
+  roundMoney,
+} from '../quotations/quotation-lifecycle';
+import {
+  CUSTOMER_INCLUDE,
+  CUSTOMER_NOT_FOUND_MESSAGE,
+} from './customer-lifecycle';
+
+const SALES_ORDER_CANCELLED = 'CANCELLED';
+const INVOICE_DRAFT = 'DRAFT';
+const RECEIVABLE_WRITTEN_OFF = 'WRITTEN_OFF';
+
+type LegacyMatch = {
+  id: string;
+  title: string;
+  status: string;
+  leadName: string;
+  leadCompany: string | null;
+  quotationCount: number;
+  matchedBy: 'LEAD_NAME' | 'LEAD_COMPANY';
+};
+
+const sum = (values: number[]) =>
+  roundMoney(values.reduce((total, v) => total + v, 0));
+
+// Everything a customer has in the quote-to-cash chain, read in one place.
+//
+// The chain is followed by id, never by name: customer -> opportunities (their
+// customerId) -> quotations -> proformas -> sales orders (directly or through
+// their proforma) -> invoices -> receivables. Invoices and receivables belong
+// to FinanceOS; they are read here, as recorded, and nothing is written. An
+// opportunity that has not been linked to this customer is not part of it,
+// however much its lead looks like the customer: those are listed apart as
+// "possible legacy matches", to be linked by a person, and are not counted in
+// any total.
+@Injectable()
+export class CustomerOverviewService {
+  constructor(private prisma: PrismaService) {}
+
+  async get(id: string) {
+    const customer = await this.prisma.customer.findUnique({
+      where: { id },
+      include: CUSTOMER_INCLUDE,
+    });
+
+    if (!customer) {
+      throw new NotFoundException(CUSTOMER_NOT_FOUND_MESSAGE);
+    }
+
+    const opportunities = await this.prisma.opportunity.findMany({
+      where: { customerId: id },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      select: {
+        id: true,
+        opportunityCode: true,
+        title: true,
+        status: true,
+        expectedValue: true,
+        probability: true,
+        expectedCloseDate: true,
+        createdAt: true,
+        lead: {
+          select: {
+            id: true,
+            customerName: true,
+            companyName: true,
+            isActive: true,
+          },
+        },
+      },
+    });
+
+    const opportunityIds = opportunities.map((o) => o.id);
+
+    const quotations = opportunityIds.length
+      ? await this.prisma.quotation.findMany({
+          where: { opportunityId: { in: opportunityIds } },
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+          select: {
+            id: true,
+            quotationCode: true,
+            opportunityId: true,
+            quoteDate: true,
+            status: true,
+            taxableAmount: true,
+            gstAmount: true,
+            totalAmount: true,
+            buyerGstId: true,
+            createdAt: true,
+          },
+        })
+      : [];
+
+    const quotationIds = quotations.map((q) => q.id);
+
+    const proformas = quotationIds.length
+      ? await this.prisma.proformaInvoice.findMany({
+          where: { quotationId: { in: quotationIds } },
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+          select: {
+            id: true,
+            proformaNumber: true,
+            quotationId: true,
+            issueDate: true,
+            customerStatus: true,
+            totalAmount: true,
+            validityDate: true,
+            createdAt: true,
+          },
+        })
+      : [];
+
+    const proformaIds = proformas.map((p) => p.id);
+
+    const salesOrders = quotationIds.length
+      ? await this.prisma.salesOrder.findMany({
+          where: {
+            OR: [
+              { quotationId: { in: quotationIds } },
+              { proformaInvoiceId: { in: proformaIds } },
+            ],
+          },
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+          select: {
+            id: true,
+            salesOrderCode: true,
+            orderDate: true,
+            status: true,
+            totalAmount: true,
+            quotationId: true,
+            proformaInvoiceId: true,
+            createdAt: true,
+          },
+        })
+      : [];
+
+    const salesOrderIds = salesOrders.map((o) => o.id);
+
+    const invoices = salesOrderIds.length
+      ? await this.prisma.salesInvoice.findMany({
+          where: { salesOrderId: { in: salesOrderIds } },
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+          select: {
+            id: true,
+            invoiceNumber: true,
+            salesOrderId: true,
+            invoiceDate: true,
+            status: true,
+            paymentStatus: true,
+            totalAmount: true,
+            receivables: {
+              select: {
+                id: true,
+                dueDate: true,
+                outstandingAmount: true,
+                paidAmount: true,
+                balanceAmount: true,
+                paymentStatus: true,
+              },
+            },
+          },
+        })
+      : [];
+
+    const legacyMatches = await this.prisma.$queryRaw<LegacyMatch[]>`
+      /* customer:legacy-matches */
+      SELECT
+        o."id",
+        o."title",
+        o."status",
+        l."customerName" AS "leadName",
+        l."companyName"  AS "leadCompany",
+        (SELECT count(*)::int FROM "Quotation" q WHERE q."opportunityId" = o."id") AS "quotationCount",
+        CASE
+          WHEN lower(regexp_replace(btrim(l."customerName"), '[[:space:]]+', ' ', 'g'))
+             = lower(regexp_replace(btrim(${customer.customerName}::text), '[[:space:]]+', ' ', 'g'))
+          THEN 'LEAD_NAME'
+          ELSE 'LEAD_COMPANY'
+        END AS "matchedBy"
+      FROM "Opportunity" o
+      JOIN "Lead" l ON l."id" = o."leadId"
+      WHERE o."customerId" IS NULL
+        AND (
+          lower(regexp_replace(btrim(l."customerName"), '[[:space:]]+', ' ', 'g'))
+            = lower(regexp_replace(btrim(${customer.customerName}::text), '[[:space:]]+', ' ', 'g'))
+          OR (
+            l."companyName" IS NOT NULL
+            AND lower(regexp_replace(btrim(l."companyName"), '[[:space:]]+', ' ', 'g'))
+              = lower(regexp_replace(btrim(${customer.customerName}::text), '[[:space:]]+', ' ', 'g'))
+          )
+        )
+      ORDER BY o."createdAt" DESC
+    `;
+
+    const now = new Date();
+
+    // Totals, each over its own set:
+    //  - approvedQuotationValue: APPROVED quotations
+    //  - orderedValue: Sales Orders that are not cancelled
+    //  - invoicedValue: invoices that are not drafts
+    //  - collectedValue / outstandingValue: the receivables of those invoices,
+    //    as FinanceOS recorded them (outstanding leaves out written-off ones)
+    const postedInvoices = invoices.filter((i) => i.status !== INVOICE_DRAFT);
+    const receivables = postedInvoices.flatMap((i) => i.receivables);
+
+    const activeRegistrations = customer.gstRegistrations.filter(
+      (g) => g.isActive,
+    );
+
+    const notReadyReasons: string[] = [];
+
+    if (!customer.isActive) notReadyReasons.push('CUSTOMER_INACTIVE');
+    if (activeRegistrations.length === 0) notReadyReasons.push('NO_ACTIVE_GST');
+
+    return {
+      customer,
+      quotingReadiness: {
+        ready: notReadyReasons.length === 0,
+        reasons: notReadyReasons,
+      },
+      opportunities,
+      quotations,
+      proformas: proformas.map((p) => ({
+        ...p,
+        isExpired: isProformaExpired(p.validityDate, now),
+      })),
+      salesOrders,
+      invoices,
+      totals: {
+        counts: {
+          opportunities: opportunities.length,
+          quotations: quotations.length,
+          proformas: proformas.length,
+          salesOrders: salesOrders.length,
+          invoices: invoices.length,
+        },
+        approvedQuotationValue: sum(
+          quotations
+            .filter((q) => q.status === QUOTATION_STATUS.APPROVED)
+            .map((q) => q.totalAmount),
+        ),
+        orderedValue: sum(
+          salesOrders
+            .filter((o) => o.status !== SALES_ORDER_CANCELLED)
+            .map((o) => o.totalAmount),
+        ),
+        invoicedValue: sum(postedInvoices.map((i) => i.totalAmount)),
+        collectedValue: sum(receivables.map((r) => r.paidAmount)),
+        outstandingValue: sum(
+          receivables
+            .filter((r) => r.paymentStatus !== RECEIVABLE_WRITTEN_OFF)
+            .map((r) => r.balanceAmount),
+        ),
+      },
+      // Opportunities that are not linked to any customer but whose lead
+      // carries this customer's name. A guess by name, for a person to confirm
+      // by linking; never counted above.
+      legacyMatches,
+    };
+  }
+}

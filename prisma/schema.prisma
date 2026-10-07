@@ -400,7 +400,17 @@ model Opportunity {
   updatedAt         DateTime    @updatedAt
   quotations        Quotation[]
 
+  // The customer this deal is for. Set explicitly (never back-filled), by
+  // linking a customer to the opportunity; it cannot change once a quotation
+  // exists. Every document further down the chain gets its customer from here.
+  customerId String?
+  customer   Customer? @relation(fields: [customerId], references: [id], onDelete: Restrict)
+
+  customerEvents CustomerEvent[]
+
   lead Lead @relation(fields: [leadId], references: [id])
+
+  @@index([customerId])
 }
 
 model Quotation {
@@ -1468,6 +1478,7 @@ model Customer {
 
   gstRegistrations CustomerGSTRegistration[]
   events           CustomerEvent[]
+  opportunities    Opportunity[]
 
   @@index([deactivatedById])
 }
@@ -1488,6 +1499,10 @@ model CustomerEvent {
   gstRegistrationId String?
   gstRegistration   CustomerGSTRegistration? @relation(fields: [gstRegistrationId], references: [id])
 
+  // Set on an event about an opportunity being linked to or unlinked from the customer.
+  opportunityId String?
+  opportunity   Opportunity? @relation(fields: [opportunityId], references: [id])
+
   actorId String?
   actor   User?   @relation("CustomerEventActor", fields: [actorId], references: [id])
 
@@ -1499,6 +1514,7 @@ model CustomerEvent {
 
   @@index([customerId, occurredAt])
   @@index([gstRegistrationId])
+  @@index([opportunityId])
   @@index([actorId])
 }
 

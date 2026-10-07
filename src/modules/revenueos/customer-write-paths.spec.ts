@@ -82,6 +82,19 @@ describe('Customer write paths', () => {
     expect(writersOf(WRITES_A_REGISTRATION)).toEqual([GST_SERVICE]);
   });
 
+  it('only the opportunity service writes an Opportunity row, so only it can set the customer', () => {
+    const WRITES_AN_OPPORTUNITY = [
+      new RegExp(String.raw`\.opportunity\s*\.\s*${WRITES}\b`),
+      /\bopportunities\s*:\s*\{\s*(create|createMany|connectOrCreate|update|upsert|delete)\b/,
+      /INSERT\s+INTO\s+"?Opportunity"?(\s|\()/i,
+      /UPDATE\s+"?Opportunity"?\s+SET\b/i,
+    ];
+
+    expect(writersOf(WRITES_AN_OPPORTUNITY)).toEqual([
+      'modules/revenueos/opportunities/opportunities.service.ts',
+    ]);
+  });
+
   it('catches each way of writing a customer (the scan is not blind)', () => {
     const samples = [
       'await this.prisma.customer.create({})',

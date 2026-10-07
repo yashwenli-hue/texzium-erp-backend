@@ -25,6 +25,7 @@ import {
   setProformaStatusIfStill,
   totalsMatch,
 } from './proforma-lifecycle';
+import { requireActiveCustomerShared } from '../customer-master/customer-lifecycle';
 
 @Injectable()
 export class ProformaInvoicesService {
@@ -52,8 +53,24 @@ export class ProformaInvoicesService {
 
       const quotation = await tx.quotation.findUniqueOrThrow({
         where: { id: data.quotationId },
-        select: { totalAmount: true },
+        select: {
+          totalAmount: true,
+          opportunity: { select: { customerId: true } },
+        },
       });
+
+      // A customer-linked quotation gets no new Proforma once its customer is
+      // inactive (the customer stays active until this commits). An unlinked,
+      // legacy one is unaffected.
+      const customerId = quotation.opportunity?.customerId;
+
+      if (customerId) {
+        await requireActiveCustomerShared(
+          tx,
+          customerId,
+          'This customer is inactive. Reactivate it before creating a Proforma Invoice for it.',
+        );
+      }
 
       if (
         data.totalAmount !== undefined &&

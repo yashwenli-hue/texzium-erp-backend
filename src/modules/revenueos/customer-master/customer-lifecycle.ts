@@ -28,6 +28,8 @@ export const CUSTOMER_EVENT_ACTION = {
   GST_DEACTIVATED: 'GST_DEACTIVATED',
   GST_REACTIVATED: 'GST_REACTIVATED',
   GST_DEFAULT_CHANGED: 'GST_DEFAULT_CHANGED',
+  OPPORTUNITY_LINKED: 'OPPORTUNITY_LINKED',
+  OPPORTUNITY_UNLINKED: 'OPPORTUNITY_UNLINKED',
 } as const;
 
 export const CUSTOMER_NOT_FOUND_MESSAGE = 'Customer not found.';
@@ -79,6 +81,46 @@ export async function lockCustomer(
   return rows[0];
 }
 
+// Locks the customer row in shared mode: other readers carry on, but a
+// deactivation (which takes the row exclusively) or a change to the customer's
+// GST registrations waits until this transaction ends, and this waits for one
+// that is already running. Used by the sales writes that need the customer to
+// stay active, and its registrations unchanged, until they commit. Always the
+// last lock a transaction takes (after lead, opportunity, quotation, proforma),
+// so it cannot take part in a deadlock.
+export async function lockCustomerShared(
+  tx: Tx,
+  customerId: string,
+): Promise<{ isActive: boolean }> {
+  const rows = await tx.$queryRaw<Array<{ isActive: boolean }>>`
+    /* customer:lock-shared */
+    SELECT "isActive"
+    FROM "Customer"
+    WHERE "id" = ${customerId}
+    FOR SHARE
+  `;
+
+  if (rows.length === 0) {
+    throw new NotFoundException(CUSTOMER_NOT_FOUND_MESSAGE);
+  }
+
+  return rows[0];
+}
+
+// The customer must exist and be active, and stays so until the transaction
+// ends. `message` says what cannot be done to an inactive customer.
+export async function requireActiveCustomerShared(
+  tx: Tx,
+  customerId: string,
+  message: string,
+): Promise<void> {
+  const locked = await lockCustomerShared(tx, customerId);
+
+  if (!locked.isActive) {
+    throw conflictCustomerInactive(message);
+  }
+}
+
 export async function requireCustomer(
   db: Pick<Tx, 'customer'>,
   customerId: string,
@@ -127,6 +169,7 @@ export function recordCustomerEvent(
     remarks?: string;
     changes?: Prisma.InputJsonObject;
     gstRegistrationId?: string;
+    opportunityId?: string;
     actorId: string;
     occurredAt: Date;
   },
@@ -140,6 +183,7 @@ export function recordCustomerEvent(
       remarks: event.remarks,
       changes: event.changes,
       gstRegistrationId: event.gstRegistrationId,
+      opportunityId: event.opportunityId,
       actorId: event.actorId,
       occurredAt: event.occurredAt,
     },

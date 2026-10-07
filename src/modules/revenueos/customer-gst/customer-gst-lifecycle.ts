@@ -35,6 +35,9 @@ export const GST_CONFLICT_CODE = {
 export const GST_BAD_REQUEST_CODE = {
   INVALID_STATE_CODE: 'INVALID_STATE_CODE',
   GSTIN_PAN_MISMATCH: 'GSTIN_PAN_MISMATCH',
+  BUYER_GST_NOT_CUSTOMERS: 'BUYER_GST_NOT_CUSTOMERS',
+  BUYER_GST_DIFFERS: 'BUYER_GST_DIFFERS',
+  SELLER_GST_DIFFERS: 'SELLER_GST_DIFFERS',
 } as const;
 
 export const GST_CUSTOMER_INACTIVE_MESSAGE =
@@ -114,5 +117,38 @@ export function conflictGstIsDefault(): ConflictException {
   return conflict(
     'This is the default GST registration. Make another registration the default first.',
     GST_CONFLICT_CODE.GST_IS_DEFAULT,
+  );
+}
+
+// ----------------------------------------------------------------------
+// Selling with a registration
+// ----------------------------------------------------------------------
+
+export function badRequestBuyerGstNotCustomers(): BadRequestException {
+  return badRequest(
+    "The buyer GST registration does not belong to this opportunity's customer.",
+    GST_BAD_REQUEST_CODE.BUYER_GST_NOT_CUSTOMERS,
+  );
+}
+
+// A document cannot be made with a registration that has been deactivated.
+export function conflictRegistrationInactive(
+  side: 'buyer' | 'seller',
+): ConflictException {
+  return conflict(
+    `The ${side} GST registration is inactive. Choose an active one.`,
+    GST_CONFLICT_CODE.GST_INACTIVE,
+  );
+}
+
+// A Sales Order is made with the registrations its Quotation was made with.
+export function badRequestOrderGstDiffers(
+  side: 'buyer' | 'seller',
+): BadRequestException {
+  return badRequest(
+    `The ${side} GST registration must be the one on the approved Quotation.`,
+    side === 'buyer'
+      ? GST_BAD_REQUEST_CODE.BUYER_GST_DIFFERS
+      : GST_BAD_REQUEST_CODE.SELLER_GST_DIFFERS,
   );
 }

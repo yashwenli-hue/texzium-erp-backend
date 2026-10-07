@@ -9,6 +9,7 @@ import { JwtAuthGuard } from '../../../core/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../../core/guards/permissions.guard';
 import { CustomerMasterController } from './customer-master.controller';
 import { CustomerMasterService } from './customer-master.service';
+import { CustomerOverviewService } from './customer-overview.service';
 import {
   PAN_PATTERN,
   PHONE_PATTERN,
@@ -461,6 +462,7 @@ describe('Customer master over HTTP', () => {
       controllers: [CustomerMasterController],
       providers: [
         CustomerMasterService,
+        { provide: CustomerOverviewService, useValue: {} },
         ...(withRealGuard ? [PermissionsGuard] : []),
         { provide: PrismaService, useValue: ctx.db },
       ],
