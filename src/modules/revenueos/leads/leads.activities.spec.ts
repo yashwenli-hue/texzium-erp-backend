@@ -55,7 +55,12 @@ describe('Lead activity (attributed employee history on LeadTimeline)', () => {
         return args.where.id === 'opp1' ? { id: 'opp1' } : null;
       }),
     },
-    $transaction: jest.fn(async (ops: Promise<unknown>[]) => Promise.all(ops)),
+    // The activity is written in a transaction under the shared lock on the lead
+    // (FOR SHARE); the lead exists and is active for 'lead1'.
+    $queryRaw: jest.fn(async () => [{ id: 'lead1', isActive: true }]),
+    $transaction: jest.fn(async (arg: any) =>
+      typeof arg === 'function' ? arg(prismaStub) : Promise.all(arg),
+    ),
   };
 
   beforeAll(async () => {

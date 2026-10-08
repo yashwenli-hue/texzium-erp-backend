@@ -6,7 +6,10 @@ import {
 
 import { PrismaService } from '../../../core/database/prisma.service';
 import { CreateFollowupDto } from './dto/create-followup.dto';
-import { lockActiveLeadForWrite } from '../leads/lead-lifecycle';
+import {
+  lockActiveLeadForWrite,
+  lockLeadForWrite,
+} from '../leads/lead-lifecycle';
 
 @Injectable()
 export class LeadFollowupsService {
@@ -113,6 +116,10 @@ export class LeadFollowupsService {
     }
 
     return this.prisma.$transaction(async (tx) => {
+      // Shared lock on the lead (any state): a deletion of the lead in progress is
+      // waited for. Nothing else about this change differs from before.
+      await lockLeadForWrite(tx, followup.leadId);
+
       const updatedFollowup = await tx.leadFollowup.update({
         where: { id },
         data: {
@@ -173,6 +180,10 @@ export class LeadFollowupsService {
     }
 
     return this.prisma.$transaction(async (tx) => {
+      // Shared lock on the lead (any state): a deletion of the lead in progress is
+      // waited for. Nothing else about this change differs from before.
+      await lockLeadForWrite(tx, followup.leadId);
+
       const updatedFollowup = await tx.leadFollowup.update({
         where: { id },
         data: {
@@ -229,6 +240,10 @@ export class LeadFollowupsService {
     }
 
     return this.prisma.$transaction(async (tx) => {
+      // Shared lock on the lead (any state): a deletion of the lead in progress is
+      // waited for. Nothing else about this change differs from before.
+      await lockLeadForWrite(tx, followup.leadId);
+
       const updatedFollowup = await tx.leadFollowup.update({
         where: { id },
         data: {

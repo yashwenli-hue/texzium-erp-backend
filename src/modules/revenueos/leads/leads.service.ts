@@ -20,6 +20,7 @@ import {
 import {
   LEAD_DEACTIVATED_MESSAGE,
   LEAD_LIFECYCLE_INCLUDE,
+  lockActiveLeadForUpdate,
   lockLeadForDeactivation,
 } from './lead-lifecycle';
 import {
@@ -181,9 +182,12 @@ export class LeadsService {
     }
 
     // The lead's updatedAt backs "last activity" in the UI, so touch it in
-    // the same transaction as the new entry.
-    const [entry] = await this.prisma.$transaction([
-      this.prisma.leadTimeline.create({
+    // the same transaction as the new entry. The lock makes this wait for a
+    // deactivation or deletion of the lead in progress and then see its result.
+    return this.prisma.$transaction(async (tx) => {
+      await lockActiveLeadForUpdate(tx, leadId);
+
+      const entry = await tx.leadTimeline.create({
         data: {
           leadId,
           source: LeadTimelineSource.EMPLOYEE,
@@ -196,15 +200,16 @@ export class LeadsService {
         include: {
           actor: { select: LEAD_ACTOR_SELECT },
         },
-      }),
-      this.prisma.lead.update({
+      });
+
+      await tx.lead.update({
         where: { id: leadId },
         data: { updatedAt: now },
         select: { id: true },
-      }),
-    ]);
+      });
 
-    return entry;
+      return entry;
+    });
   }
 
   async update(
@@ -261,8 +266,12 @@ export class LeadsService {
       ),
     );
 
-    const lead =
-      await this.prisma.lead.update({
+    // The edit and its history event are one change, made under the lock so that a
+    // deactivation or deletion of the lead in progress is waited for.
+    return this.prisma.$transaction(async (tx) => {
+      await lockActiveLeadForUpdate(tx, id);
+
+      const lead = await tx.lead.update({
         where: {
           id,
         },
@@ -273,15 +282,16 @@ export class LeadsService {
         },
       });
 
-    await this.prisma.leadTimeline.create({
-      data: {
-        leadId: id,
-        action: 'LEAD_UPDATED',
-        remarks: 'Lead information updated.',
-      },
-    });
+      await tx.leadTimeline.create({
+        data: {
+          leadId: id,
+          action: 'LEAD_UPDATED',
+          remarks: 'Lead information updated.',
+        },
+      });
 
-    return lead;
+      return lead;
+    });
   }
 
   // Takes a lead out of active work without deleting anything. The conditional
@@ -347,6 +357,10 @@ export class LeadsService {
 
     return this.prisma.$transaction(async (tx) => {
       const now = new Date();
+
+      // Same exclusive lock as deactivation (and deletion): a reactivation cannot
+      // overlap either.
+      await lockLeadForDeactivation(tx, id);
 
       const result = await tx.lead.updateMany({
         where: { id, isActive: false },

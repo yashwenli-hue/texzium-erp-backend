@@ -66,6 +66,9 @@ describe('Lead location (create and edit)', () => {
         return { id: 't', ...a.data };
       }),
     },
+    // Edits run in a transaction under the shared lock on the lead (FOR SHARE).
+    $queryRaw: jest.fn(async () => [{ id: 'lead', isActive: true }]),
+    $transaction: jest.fn(async (fn: any) => fn(db)),
   };
 
   beforeAll(async () => {

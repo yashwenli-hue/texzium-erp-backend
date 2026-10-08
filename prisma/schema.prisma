@@ -71,6 +71,7 @@ model User {
   customerEvents     CustomerEvent[]   @relation("CustomerEventActor")
   paymentCollectionsRecorded PaymentCollection[]      @relation("PaymentCollectionRecordedBy")
   paymentCollectionEvents    PaymentCollectionEvent[] @relation("PaymentCollectionEventActor")
+  dataDeletions              DataDeletionRecord[]     @relation("DataDeletionActor")
 }
 
 model Role {
@@ -123,6 +124,53 @@ model AuditLog {
   user User @relation(fields: [userId], references: [id])
 
   createdAt DateTime @default(now())
+}
+
+// The tombstone of a record that was permanently deleted through the governed
+// deletion path (one model for every entity type: a lead today, a customer next).
+//
+// A row is written in the same transaction that removes the record, and holds a
+// complete copy of it (the row and everything that was removed with it), so what was
+// deleted, by whom, when and why can always be answered. Nothing refers to it and
+// it refers to nothing but the person who deleted: entityId and survivorId are the
+// ORIGINAL ids of records that no longer exist, so they are plain columns, not
+// foreign keys.
+//
+// Tombstones are never updated or deleted (a database trigger refuses both; see
+// manual migration 20261011_crm_data_deletion_record.sql). The snapshot is the full
+// record, personal data included: it is readable only through the endpoints guarded
+// by governance.deletions.view. There is deliberately no purge or redaction yet; how
+// long a snapshot may be kept is an open privacy and retention decision.
+model DataDeletionRecord {
+  id String @id @default(uuid())
+
+  // 'LEAD' | 'CUSTOMER' (checked in the database)
+  entityType  String
+  entityId    String
+  entityCode  String?
+  entityLabel String
+
+  // DUPLICATE | ENTERED_IN_ERROR | TEST_DATA | JUNK_OR_SPAM | OTHER (checked in
+  // the database), and the person's own explanation (1 to 500 characters).
+  reasonCode String
+  reason     String
+
+  // Set only for DUPLICATE, when the surviving record was named.
+  survivorId    String?
+  survivorLabel String?
+
+  // The record and everything removed with it, as it was just before deletion, and
+  // what the deletion removed and checked.
+  snapshot Json
+  impact   Json
+
+  deletedById String
+  deletedBy   User     @relation("DataDeletionActor", fields: [deletedById], references: [id])
+  deletedAt   DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@index([deletedAt])
+  @@index([deletedById])
 }
 
 model Notification {
