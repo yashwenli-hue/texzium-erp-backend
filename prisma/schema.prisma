@@ -227,6 +227,18 @@ model Lead {
   assignedToId String?
   assignedTo   User?   @relation(fields: [assignedToId], references: [id])
 
+  // Where the lead is. All three are null when nothing was recorded (every lead
+  // that existed before location was kept, and leads that arrive from the
+  // WhatsApp bot or a webhook); nothing is inferred from the phone number.
+  //   country  ISO 3166-1 alpha-2 code; "IN" means domestic
+  //   state    a state or union territory of India, only when country is "IN"
+  //   city     free text: the city or the specific location
+  // The rules are in lead-location.ts and the database enforces the shape with
+  // a CHECK (manual migration 20261010_crm_lead_location.sql).
+  country String?
+  state   String?
+  city    String?
+
   status LeadStatus @default(NEW)
 
   // Soft lifecycle. An inactive lead is hidden from normal lists and takes no
@@ -290,6 +302,13 @@ model LeadTimeline {
 
   action  String
   remarks String?
+
+  // What the person who performed the action wrote about it (today only on
+  // OPPORTUNITY_STAGE_CHANGED). Kept apart from `remarks`, which is the system's
+  // own sentence about the event. Null on every row recorded before it existed,
+  // and whenever the person wrote nothing. Never written from client-supplied
+  // actor data: the actor is the authenticated user.
+  userRemark String?
 
   source       LeadTimelineSource @default(SYSTEM)
   activityType LeadActivityType?

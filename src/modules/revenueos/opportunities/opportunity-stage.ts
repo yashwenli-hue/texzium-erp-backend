@@ -13,6 +13,9 @@ export type OpportunityStage = (typeof OPPORTUNITY_STAGES)[number];
 
 export const INITIAL_OPPORTUNITY_STAGE: OpportunityStage = 'QUALIFIED';
 
+// The optional remark the person writes when they move an opportunity.
+export const OPPORTUNITY_STAGE_REMARK_MAX_LENGTH = 500;
+
 const STAGE_LABEL: Record<OpportunityStage, string> = {
   QUALIFIED: 'Qualified',
   PROPOSAL: 'Proposal',

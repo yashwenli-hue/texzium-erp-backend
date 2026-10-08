@@ -304,6 +304,8 @@ export class OpportunitiesService {
           leadId: opportunity.leadId,
           action: 'OPPORTUNITY_STAGE_CHANGED',
           remarks: `Opportunity "${opportunity.title}": ${opportunityStageLabel(fromStage)} → ${opportunityStageLabel(toStage)}`,
+          // What the person wrote, apart from the system sentence above.
+          userRemark: body.remarks ?? null,
           actorId,
           occurredAt: now,
         },

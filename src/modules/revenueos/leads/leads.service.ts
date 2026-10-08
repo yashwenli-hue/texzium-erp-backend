@@ -22,6 +22,11 @@ import {
   LEAD_LIFECYCLE_INCLUDE,
   lockLeadForDeactivation,
 } from './lead-lifecycle';
+import {
+  LeadLocation,
+  assertLeadLocation,
+  mergeLeadLocation,
+} from './lead-location';
 
 // Tolerance for client/server clock skew when rejecting future-dated activity.
 const OCCURRED_AT_FUTURE_TOLERANCE_MS = 5 * 60 * 1000;
@@ -46,6 +51,15 @@ export class LeadsService {
       );
     }
 
+    // Nothing is inferred when no location is given: all three stay null.
+    const location: LeadLocation = {
+      country: data.country ?? null,
+      state: data.state ?? null,
+      city: data.city ?? null,
+    };
+
+    assertLeadLocation(location);
+
     const lead = await this.prisma.lead.create({
       data: {
         leadCode: data.leadCode,
@@ -55,6 +69,9 @@ export class LeadsService {
         phone: data.phone,
         alternatePhone: data.alternatePhone,
         sourceId: data.sourceId,
+        country: location.country,
+        state: location.state,
+        city: location.city,
       },
       include: {
         source: true,
@@ -225,6 +242,24 @@ export class LeadsService {
         );
       }
     }
+
+    // The location is judged as a whole: what is stored with the change applied.
+    // A field that is absent keeps its value, null clears it. A lead that has no
+    // location and is edited without one stays valid.
+    assertLeadLocation(
+      mergeLeadLocation(
+        {
+          country: existing.country ?? null,
+          state: existing.state ?? null,
+          city: existing.city ?? null,
+        },
+        {
+          country: data.country,
+          state: data.state,
+          city: data.city,
+        },
+      ),
+    );
 
     const lead =
       await this.prisma.lead.update({
