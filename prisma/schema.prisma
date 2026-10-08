@@ -69,6 +69,8 @@ model User {
   proformaEvents     ProformaEvent[]   @relation("ProformaEventActor")
   deactivatedCustomers Customer[]      @relation("CustomerDeactivatedBy")
   customerEvents     CustomerEvent[]   @relation("CustomerEventActor")
+  paymentCollectionsRecorded PaymentCollection[]      @relation("PaymentCollectionRecordedBy")
+  paymentCollectionEvents    PaymentCollectionEvent[] @relation("PaymentCollectionEventActor")
 }
 
 model Role {
@@ -739,6 +741,11 @@ model GSTInvoiceRegistry {
   salesInvoice SalesInvoice @relation(fields: [salesInvoiceId], references: [id])
 }
 
+// One receivable per invoice. That rule is enforced by the database (a unique
+// index on "salesInvoiceId", created by the manual migration
+// 20261009_crm_payment_collection_governance.sql) and is deliberately NOT
+// declared here: a @@unique would turn SalesInvoice.receivables into a single
+// optional relation and change the typing of every existing reader.
 model AccountsReceivable {
   id                 String              @id @default(uuid())
   salesInvoiceId     String
@@ -751,10 +758,21 @@ model AccountsReceivable {
   updatedAt          DateTime            @updatedAt
   paymentCollections PaymentCollection[]
   badDebtWriteOffs   BadDebtWriteOff[]
+  paymentCollectionEvents PaymentCollectionEvent[]
 
   salesInvoice SalesInvoice @relation(fields: [salesInvoiceId], references: [id])
 }
 
+// A payment received against one receivable. Written only by the RevenueOS
+// collection command (PaymentCollectionsService.create), in one transaction with
+// the receivable update, the customer-ledger credit and the event below.
+//
+// Rules the database enforces (manual migration
+// 20261009_crm_payment_collection_governance.sql, not expressible here):
+//   - amount > 0
+//   - one reference per receivable, case-insensitively (partial unique index on
+//     "accountsReceivableId", lower(btrim("referenceNumber")))
+// recordedById is null on collections that were recorded before the actor was kept.
 model PaymentCollection {
   id                   String   @id @default(uuid())
   accountsReceivableId String
@@ -765,7 +783,50 @@ model PaymentCollection {
   remarks              String?
   createdAt            DateTime @default(now())
 
+  recordedById String?
+  recordedBy   User?   @relation("PaymentCollectionRecordedBy", fields: [recordedById], references: [id])
+
+  accountsReceivable AccountsReceivable      @relation(fields: [accountsReceivableId], references: [id])
+  events             PaymentCollectionEvent[]
+
+  @@index([accountsReceivableId, paymentDate])
+  @@index([recordedById])
+}
+
+// What happened to a payment collection: who did it, when, and what it did to
+// the receivable. `amount`, the balances and the statuses are snapshots taken in
+// the same transaction as the change, so history stays true even if the
+// receivable is later changed by FinanceOS. The accounts receivable and invoice
+// ids are kept here so a receivable's whole history reads without a join.
+// `action` is PAYMENT_RECORDED today; it is a string so later actions fit.
+model PaymentCollectionEvent {
+  id                   String @id @default(uuid())
+  paymentCollectionId  String
+  accountsReceivableId String
+  salesInvoiceId       String
+
+  action        String
+  amount        Float
+  balanceBefore Float
+  balanceAfter  Float
+  fromStatus    String?
+  toStatus      String?
+  remarks       String?
+
+  actorId String
+  actor   User   @relation("PaymentCollectionEventActor", fields: [actorId], references: [id])
+
+  // When the event happened; createdAt is when the row was recorded.
+  occurredAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+
+  paymentCollection  PaymentCollection  @relation(fields: [paymentCollectionId], references: [id])
   accountsReceivable AccountsReceivable @relation(fields: [accountsReceivableId], references: [id])
+
+  @@index([accountsReceivableId, occurredAt])
+  @@index([paymentCollectionId])
+  @@index([salesInvoiceId])
+  @@index([actorId])
 }
 
 model Warranty {
