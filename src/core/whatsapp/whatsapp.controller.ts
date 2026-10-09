@@ -1,5 +1,6 @@
 import { Body, Controller, Get, Post, Query } from '@nestjs/common';
 import { WhatsAppService } from './whatsapp.service';
+import { Public } from '../decorators/public.decorator';
 
 @Controller('whatsapp')
 export class WhatsAppController {
@@ -49,6 +50,9 @@ export class WhatsAppController {
     );
   }
 
+  // Public: incoming messages are delivered by the WhatsApp Cloud API, which cannot hold
+  // a login token. (The GET verification handshake above is not public.)
+  @Public()
   @Post('webhook')
   receiveWebhook(@Body() body: any) {
     return this.whatsappService.handleIncomingMessage(body);
