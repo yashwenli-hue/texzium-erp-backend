@@ -3,6 +3,7 @@ import {
   LEAD_BLOCKER,
   LEAD_DELETION_POLICY,
   LEAD_DUPLICATE_REMOVED_ACTION,
+  LEAD_DUPLICATE_RESTORED_ACTION,
   leadBlockers,
 } from './lead-deletion.policy';
 
@@ -347,6 +348,43 @@ describe('lead deletion: locking, capture and removal', () => {
     });
   });
 
+  it("after a purge, scrubs the erased lead's name from the survivor's history: only the exact entries that named it, replaced by a neutral sentence", async () => {
+    const updateMany = jest.fn(async () => ({ count: 1 }));
+    await LEAD_DELETION_POLICY.redactSurvivorEvents(
+      { leadTimeline: { updateMany } } as any,
+      { survivorId: 'S1', removedLabel: 'Sterling Pumps' },
+    );
+
+    expect(updateMany).toHaveBeenCalledTimes(2);
+    expect(updateMany).toHaveBeenNthCalledWith(1, {
+      where: {
+        leadId: 'S1',
+        action: LEAD_DUPLICATE_REMOVED_ACTION,
+        remarks:
+          'Duplicate lead "Sterling Pumps" was moved to the Recycle Bin.',
+      },
+      data: {
+        remarks:
+          'A duplicate lead was moved to the Recycle Bin and has since been permanently erased.',
+      },
+    });
+    expect(updateMany).toHaveBeenNthCalledWith(2, {
+      where: {
+        leadId: 'S1',
+        action: LEAD_DUPLICATE_RESTORED_ACTION,
+        remarks:
+          'Lead "Sterling Pumps", deleted earlier as a duplicate of this lead, was restored.',
+      },
+      data: {
+        remarks:
+          'A duplicate lead was moved to the Recycle Bin and has since been permanently erased.',
+      },
+    });
+    expect(
+      JSON.stringify(updateMany.mock.calls.map((c: any) => c[0].data)),
+    ).not.toContain('Sterling');
+  });
+
   it('tells the survivor in its own history, naming the removed lead and the reason, with the actor', async () => {
     const create = jest.fn(async () => ({}));
     await LEAD_DELETION_POLICY.recordSurvivorEvent(
@@ -355,8 +393,6 @@ describe('lead deletion: locking, capture and removal', () => {
         survivorId: 'S1',
         removedId: 'L1',
         removedLabel: 'Sterling Pumps',
-        reasonCode: 'DUPLICATE',
-        reason: 'Same buyer, entered twice',
         actorId: 'user-1',
       },
     );
@@ -366,7 +402,7 @@ describe('lead deletion: locking, capture and removal', () => {
         leadId: 'S1',
         action: LEAD_DUPLICATE_REMOVED_ACTION,
         remarks:
-          'Duplicate lead "Sterling Pumps" was permanently deleted. Reason: Same buyer, entered twice',
+          'Duplicate lead "Sterling Pumps" was moved to the Recycle Bin.',
         actorId: 'user-1',
       },
     });

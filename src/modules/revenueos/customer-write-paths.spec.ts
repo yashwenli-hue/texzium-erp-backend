@@ -55,10 +55,16 @@ const writersOf = (patterns: RegExp[]) => {
   return writers.sort();
 };
 
+// Governed deletion and restore (see customer-deletion.policy.ts) is the one deliberate
+// addition: it deletes a customer and its registrations after the blockers have been
+// checked under a lock, and recreates them from the tombstone on restore.
+const CUSTOMER_DELETION =
+  'modules/revenueos/customer-master/customer-deletion.policy.ts';
+
 describe('Customer write paths', () => {
   it('only the customer service and the vendor flow write a Customer row', () => {
     expect(writersOf(WRITES_A_CUSTOMER)).toEqual(
-      [CUSTOMER_SERVICE, VENDOR_FLOW].sort(),
+      [CUSTOMER_SERVICE, VENDOR_FLOW, CUSTOMER_DELETION].sort(),
     );
   });
 
@@ -78,8 +84,26 @@ describe('Customer write paths', () => {
     expect(text).not.toMatch(/DELETE\s+FROM/i);
   });
 
-  it('only the GST registration service writes a registration, until it is governed', () => {
-    expect(writersOf(WRITES_A_REGISTRATION)).toEqual([GST_SERVICE]);
+  it('only the GST registration service (and governed deletion / restore) writes a registration', () => {
+    expect(writersOf(WRITES_A_REGISTRATION)).toEqual(
+      [GST_SERVICE, CUSTOMER_DELETION].sort(),
+    );
+  });
+
+  it('governed deletion is the only place a customer or a registration is removed, and it removes only the one customer it was asked to', () => {
+    const text = fs.readFileSync(path.join(SRC, CUSTOMER_DELETION), 'utf8');
+
+    expect(text).toMatch(/customer\.delete\(\{ where: \{ id \} \}\)/);
+    expect(text).toMatch(
+      /customerGSTRegistration\.deleteMany\(\{ where: \{ customerId: id \} \}\)/,
+    );
+    expect(text).toMatch(
+      /customerEvent\.deleteMany\(\{ where: \{ customerId: id \} \}\)/,
+    );
+    expect(text).not.toMatch(
+      /customer\.(deleteMany|updateMany|update|upsert)\b/,
+    );
+    expect(text).not.toMatch(/DELETE\s+FROM/i);
   });
 
   it('only the opportunity service writes an Opportunity row, so only it can set the customer', () => {

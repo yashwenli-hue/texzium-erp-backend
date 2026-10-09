@@ -9,14 +9,18 @@ import {
   Min,
 } from 'class-validator';
 
-import { DELETION_ENTITY } from '../data-deletion';
+import { DELETION_ENTITY, DELETION_STATUS } from '../data-deletion';
 
-// Reading the deletion log: newest first, optionally one kind of record or one
-// original id, and paged.
+// Reading the deletion log / recycle bin: newest first, optionally one kind of record,
+// one status or one original id, and paged.
 export class ListDeletionsQueryDto {
   @IsOptional()
   @IsIn(Object.values(DELETION_ENTITY))
   entityType?: (typeof DELETION_ENTITY)[keyof typeof DELETION_ENTITY];
+
+  @IsOptional()
+  @IsIn(Object.values(DELETION_STATUS))
+  status?: (typeof DELETION_STATUS)[keyof typeof DELETION_STATUS];
 
   @IsOptional()
   @IsString()

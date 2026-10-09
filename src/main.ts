@@ -13,6 +13,10 @@ async function bootstrap() {
     }),
   );
 
+  // So that module destroy hooks run on SIGTERM / SIGINT (the deletion purge worker
+  // finishes its current record and stops, instead of being cut off).
+  app.enableShutdownHooks();
+
   await app.listen(process.env.PORT ?? 3000);
 }
 

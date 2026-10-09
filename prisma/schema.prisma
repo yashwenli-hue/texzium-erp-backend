@@ -72,6 +72,8 @@ model User {
   paymentCollectionsRecorded PaymentCollection[]      @relation("PaymentCollectionRecordedBy")
   paymentCollectionEvents    PaymentCollectionEvent[] @relation("PaymentCollectionEventActor")
   dataDeletions              DataDeletionRecord[]     @relation("DataDeletionActor")
+  dataDeletionsRestored      DataDeletionRecord[]     @relation("DataDeletionRestorer")
+  dataDeletionsPurged        DataDeletionRecord[]     @relation("DataDeletionPurger")
 }
 
 model Role {
@@ -126,34 +128,46 @@ model AuditLog {
   createdAt DateTime @default(now())
 }
 
-// The tombstone of a record that was permanently deleted through the governed
-// deletion path (one model for every entity type: a lead today, a customer next).
+// The tombstone of a record that was deleted through the governed deletion path (one
+// model for every entity type: a lead and a customer today).
 //
 // A row is written in the same transaction that removes the record, and holds a
 // complete copy of it (the row and everything that was removed with it), so what was
-// deleted, by whom, when and why can always be answered. Nothing refers to it and
-// it refers to nothing but the person who deleted: entityId and survivorId are the
-// ORIGINAL ids of records that no longer exist, so they are plain columns, not
-// foreign keys.
+// deleted, by whom, when and why can always be answered, and the record can be put
+// back (restore) until the recovery window ends. Nothing refers to it and it refers
+// to nothing but the people who acted: entityId and survivorId are the ORIGINAL ids
+// of records that may no longer exist, so they are plain columns, not foreign keys.
 //
-// Tombstones are never updated or deleted (a database trigger refuses both; see
-// manual migration 20261011_crm_data_deletion_record.sql). The snapshot is the full
-// record, personal data included: it is readable only through the endpoints guarded
-// by governance.deletions.view. There is deliberately no purge or redaction yet; how
-// long a snapshot may be kept is an open privacy and retention decision.
+// Lifecycle (status): DELETED -> RESTORED (the record was put back) or PURGED (erased for
+// good: by an administrator at any time, or automatically once the recovery window has
+// ended). Both are final. The deadline is stored (purgeAfter = deletedAt + the recovery
+// policy of the day, 30 days at first), not calculated, so a later change of policy never
+// moves an old deadline; the record is restorable while now <= purgeAfter. A database
+// trigger allows exactly those two transitions and refuses every other UPDATE, every
+// DELETE and TRUNCATE (manual migration 20261011_crm_data_deletion_record.sql).
+//
+// The snapshot is the full record, personal data included: it is readable only through
+// the endpoints guarded by governance.deletions.view. A purge keeps only a minimal audit
+// entry: the snapshot, the impact, the free-text reason, the name, the code, the ORIGINAL
+// record id, the survivor and the deleter are all erased (null) in the same update, and the
+// database refuses a purge that keeps any of them. What stays is the tombstone's own id, the
+// entity type, the reason code (a fixed category), the dates, and how and by whom it was purged.
 model DataDeletionRecord {
   id String @id @default(uuid())
 
   // 'LEAD' | 'CUSTOMER' (checked in the database)
   entityType  String
-  entityId    String
+  // The id of the lead or customer: erased (null) once it is purged, so nothing points back to it.
+  // The tombstone's own `id` is the audit key.
+  entityId    String?
   entityCode  String?
-  entityLabel String
+  // Erased (null) once the record is purged: nothing that identifies it is kept.
+  entityLabel String?
 
   // DUPLICATE | ENTERED_IN_ERROR | TEST_DATA | JUNK_OR_SPAM | OTHER (checked in
   // the database), and the person's own explanation (1 to 500 characters).
   reasonCode String
-  reason     String
+  reason     String?
 
   // Set only for DUPLICATE, when the surviving record was named.
   survivorId    String?
@@ -164,13 +178,34 @@ model DataDeletionRecord {
   snapshot Json
   impact   Json
 
-  deletedById String
-  deletedBy   User     @relation("DataDeletionActor", fields: [deletedById], references: [id])
+  // DELETED | RESTORED | PURGED (checked in the database)
+  status      String   @default("DELETED")
+  deletedById String?
+  deletedBy   User?    @relation("DataDeletionActor", fields: [deletedById], references: [id])
   deletedAt   DateTime @default(now())
 
+  // The end of the recovery window. After it the record can no longer be restored.
+  purgeAfter DateTime
+
+  restoredAt   DateTime?
+  restoredById String?
+  restoredBy   User?     @relation("DataDeletionRestorer", fields: [restoredById], references: [id])
+
+  purgedAt   DateTime?
+  purgedById String?
+  purgedBy   User?     @relation("DataDeletionPurger", fields: [purgedById], references: [id])
+
+  // MANUAL (an administrator, purgedById = who, at any time) or AUTOMATIC (the purge worker,
+  // strictly after purgeAfter, purgedById null). Set only when status is PURGED (checked in
+  // the database).
+  purgeMethod String?
+
   @@index([entityType, entityId])
+  @@index([status, deletedAt])
   @@index([deletedAt])
   @@index([deletedById])
+  @@index([restoredById])
+  @@index([purgedById])
 }
 
 model Notification {

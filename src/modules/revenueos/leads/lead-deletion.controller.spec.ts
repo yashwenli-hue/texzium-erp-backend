@@ -24,6 +24,9 @@ describe('lead deletion routes', () => {
     delete: jest.fn(async () => ({ id: 'ts-1' })),
     list: jest.fn(async () => []),
     findOne: jest.fn(async () => ({ id: 'ts-1' })),
+    restorePreview: jest.fn(async () => ({ eligible: true })),
+    restore: jest.fn(async () => ({ id: 'ts-1' })),
+    purge: jest.fn(async () => ({ id: 'ts-1' })),
   };
 
   beforeAll(async () => {
@@ -58,7 +61,12 @@ describe('lead deletion routes', () => {
   beforeEach(() => {
     user = {
       id: 'user-1',
-      permissions: ['leads.delete', 'governance.deletions.view'],
+      permissions: [
+        'leads.delete',
+        'governance.deletions.view',
+        'governance.deletions.restore',
+        'governance.deletions.purge',
+      ],
     };
     jest.clearAllMocks();
   });
@@ -206,41 +214,117 @@ describe('lead deletion routes', () => {
     });
   });
 
-  describe('the deletion log is read only', () => {
+  describe('the deletion log, restore and purge', () => {
+    const http = () => request(app.getHttpServer());
+
+    it.each([
+      [
+        'restore preview',
+        () => http().get('/data-deletions/ts-1/restore-preview'),
+        [
+          'governance.deletions.view',
+          'leads.delete',
+          'governance.deletions.purge',
+        ],
+      ],
+      [
+        'restore',
+        () =>
+          http().post('/data-deletions/ts-1/restore').send({ version: 'v' }),
+        [
+          'governance.deletions.view',
+          'leads.delete',
+          'governance.deletions.purge',
+        ],
+      ],
+      [
+        'purge',
+        () => http().post('/data-deletions/ts-1/purge').send({}),
+        [
+          'governance.deletions.view',
+          'governance.deletions.restore',
+          'leads.delete',
+        ],
+      ],
+    ])(
+      '%s is refused (403) without its own permission',
+      async (_name, call, permissions) => {
+        user = { id: 'user-1', permissions };
+        expect((await call()).status).toBe(403);
+        expect(service.restorePreview).not.toHaveBeenCalled();
+        expect(service.restore).not.toHaveBeenCalled();
+        expect(service.purge).not.toHaveBeenCalled();
+      },
+    );
+
+    it('restore hands the id, the token and the SIGNED-IN user to the service', async () => {
+      const res = await http()
+        .post('/data-deletions/ts-1/restore')
+        .send({ version: 'abc' });
+      expect(res.status).toBe(201);
+      expect(service.restore).toHaveBeenCalledWith(
+        'ts-1',
+        { version: 'abc' },
+        'user-1',
+      );
+    });
+
+    it.each([
+      ['no version', {}],
+      ['an empty version', { version: '' }],
+      ['an actor from the client', { version: 'v', restoredById: 'x' }],
+      ['an undeclared field', { version: 'v', force: true }],
+    ])('restore refuses %s (400)', async (_n, payload) => {
+      expect(
+        (await http().post('/data-deletions/ts-1/restore').send(payload))
+          .status,
+      ).toBe(400);
+      expect(service.restore).not.toHaveBeenCalled();
+    });
+
+    it('purge takes no body fields, and uses the signed-in user', async () => {
+      expect(
+        (await http().post('/data-deletions/ts-1/purge').send({})).status,
+      ).toBe(201);
+      expect(service.purge).toHaveBeenCalledWith('ts-1', 'user-1');
+    });
+
     it.each([
       ['post', '/data-deletions'],
       ['put', '/data-deletions/ts-1'],
       ['patch', '/data-deletions/ts-1'],
       ['delete', '/data-deletions/ts-1'],
-    ])('has no %s route', async (method, path) => {
-      const res = await (request(app.getHttpServer()) as any)
-        [method](path)
-        .send({});
-      expect(res.status).toBe(404);
-    });
+    ])(
+      'has no %s route on a tombstone itself (it cannot be created, edited or removed through the API)',
+      async (method, path) => {
+        const res = await (http() as any)[method](path).send({});
+        expect(res.status).toBe(404);
+      },
+    );
 
-    it('lists with a validated query', async () => {
+    it('lists with a validated query (type, status, paging)', async () => {
       expect(
         (
-          await request(app.getHttpServer()).get(
-            '/data-deletions?entityType=LEAD&limit=20&offset=0',
+          await http().get(
+            '/data-deletions?entityType=LEAD&status=DELETED&limit=20&offset=0',
           )
         ).status,
       ).toBe(200);
       expect(service.list).toHaveBeenCalledWith(
-        expect.objectContaining({ entityType: 'LEAD', limit: 20, offset: 0 }),
+        expect.objectContaining({
+          entityType: 'LEAD',
+          status: 'DELETED',
+          limit: 20,
+          offset: 0,
+        }),
       );
       expect(
-        (
-          await request(app.getHttpServer()).get(
-            '/data-deletions?entityType=ROBOT',
-          )
-        ).status,
+        (await http().get('/data-deletions?entityType=ROBOT')).status,
       ).toBe(400);
-      expect(
-        (await request(app.getHttpServer()).get('/data-deletions?limit=500'))
-          .status,
-      ).toBe(400);
+      expect((await http().get('/data-deletions?status=GONE')).status).toBe(
+        400,
+      );
+      expect((await http().get('/data-deletions?limit=500')).status).toBe(400);
     });
   });
 });
