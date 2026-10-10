@@ -76,7 +76,7 @@ export class LeadsService {
       },
       include: {
         source: true,
-        assignedTo: true,
+        assignedTo: { select: LEAD_ACTOR_SELECT },
       },
     });
 
@@ -96,7 +96,7 @@ export class LeadsService {
       where: includeInactive ? undefined : { isActive: true },
       include: {
         source: true,
-        assignedTo: true,
+        assignedTo: { select: LEAD_ACTOR_SELECT },
         followups: true,
         opportunities: true,
       },
@@ -114,7 +114,7 @@ export class LeadsService {
         },
         include: {
           source: true,
-          assignedTo: true,
+          assignedTo: { select: LEAD_ACTOR_SELECT },
           deactivatedBy: { select: LEAD_ACTOR_SELECT },
           ...LEAD_HISTORY_INCLUDE,
           followups: {
@@ -278,7 +278,7 @@ export class LeadsService {
         data,
         include: {
           source: true,
-          assignedTo: true,
+          assignedTo: { select: LEAD_ACTOR_SELECT },
         },
       });
 

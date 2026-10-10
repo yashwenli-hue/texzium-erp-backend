@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
+import { USER_REFERENCE_SELECT } from '../security/user-select';
 
 @Injectable()
 export class NotificationService {
@@ -44,7 +45,7 @@ export class NotificationService {
   async getNotifications() {
     return this.prisma.notification.findMany({
       include: {
-        user: true,
+        user: { select: USER_REFERENCE_SELECT },
       },
       orderBy: {
         createdAt: 'desc',

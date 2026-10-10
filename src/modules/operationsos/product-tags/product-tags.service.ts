@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../core/database/prisma.service';
+import { USER_REFERENCE_SELECT } from '../../../core/security/user-select';
 import { CreateProductTagDto } from './dto/create-product-tag.dto';
 
 @Injectable()
@@ -24,7 +25,7 @@ export class ProductTagsService {
       include: {
         inventoryItem: true,
         salesOrder: true,
-        salesPerson: true,
+        salesPerson: { select: USER_REFERENCE_SELECT },
       },
     });
   }
@@ -37,7 +38,7 @@ export class ProductTagsService {
       include: {
         inventoryItem: true,
         salesOrder: true,
-        salesPerson: true,
+        salesPerson: { select: USER_REFERENCE_SELECT },
       },
     });
   }
