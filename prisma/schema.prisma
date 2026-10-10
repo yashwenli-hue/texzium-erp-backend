@@ -386,11 +386,13 @@ model LeadTimeline {
   action  String
   remarks String?
 
-  // What the person who performed the action wrote about it (today only on
-  // OPPORTUNITY_STAGE_CHANGED). Kept apart from `remarks`, which is the system's
-  // own sentence about the event. Null on every row recorded before it existed,
-  // and whenever the person wrote nothing. Never written from client-supplied
-  // actor data: the actor is the authenticated user.
+  // What the person who performed the action wrote about it: the optional remark
+  // on OPPORTUNITY_STAGE_CHANGED and LEAD_UNASSIGNED, and the required reason on
+  // LEAD_REJECTED. Kept apart from `remarks`, which is the system's own sentence
+  // about the event. Null on every row recorded before it existed (an older
+  // LEAD_REJECTED row keeps its reason in `remarks`), and whenever the person
+  // wrote nothing. Never written from client-supplied actor data: the actor is the
+  // authenticated user.
   userRemark String?
 
   source       LeadTimelineSource @default(SYSTEM)

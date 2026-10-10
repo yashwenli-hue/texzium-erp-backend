@@ -306,7 +306,7 @@ describe('Opportunity stage remark', () => {
     const src = (rel: string) =>
       fs.readFileSync(path.join(__dirname, '../../..', rel), 'utf8');
 
-    it('is written by updateStage and the lead unassignment only; every other timeline writer leaves userRemark alone', () => {
+    it('is written by updateStage, the lead rejection and the lead unassignment only; every other timeline writer leaves userRemark alone', () => {
       const writers = [
         'modules/revenueos/leads/leads.service.ts',
         'modules/revenueos/lead-status/lead-status.service.ts',
@@ -321,18 +321,22 @@ describe('Opportunity stage remark', () => {
         ),
       ).toHaveLength(1);
 
-      // The assignment service writes it once, in unassign (LEAD_UNASSIGNED); assign,
-      // qualify and reject leave it alone.
+      // The assignment service writes it twice: in rejectLead (LEAD_REJECTED, the
+      // reason) and in unassign (LEAD_UNASSIGNED, the remark). Assign and qualify
+      // leave it alone.
       const assignments = src(
         'modules/revenueos/lead-assignments/lead-assignments.service.ts',
       );
-      expect(assignments.match(/userRemark/g)).toHaveLength(1);
-      expect(assignments.indexOf('userRemark')).toBeGreaterThan(
-        assignments.indexOf('async unassign('),
+      const methods = ['assign', 'qualifyLead', 'rejectLead', 'unassign'].map(
+        (name) => assignments.indexOf(`async ${name}(`),
       );
-      expect(assignments.indexOf('async unassign(')).toBeGreaterThan(
-        assignments.indexOf('async rejectLead('),
+      methods.forEach((at) => expect(at).toBeGreaterThan(-1));
+      expect([...methods].sort((a, b) => a - b)).toEqual(methods);
+      const remarkWriters = [...assignments.matchAll(/userRemark/g)].map(
+        (m) => methods.filter((at) => at < (m.index ?? 0)).length - 1,
       );
+      // index into ['assign', 'qualifyLead', 'rejectLead', 'unassign']
+      expect(remarkWriters).toEqual([2, 3]);
     });
   });
 });

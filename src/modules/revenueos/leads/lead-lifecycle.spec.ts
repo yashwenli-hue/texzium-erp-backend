@@ -48,6 +48,9 @@ interface FakeLead {
   deactivatedAt: Date | null;
   deactivatedById: string | null;
   deactivationReason: string | null;
+  status: string;
+  assignedToId: string | null;
+  assignedTo: { fullName: string } | null;
 }
 
 describe('Lead deactivate / reactivate', () => {
@@ -67,6 +70,9 @@ describe('Lead deactivate / reactivate', () => {
     deactivatedAt: isActive ? null : new Date('2026-10-01T10:00:00Z'),
     deactivatedById: isActive ? null : 'user-1',
     deactivationReason: isActive ? null : 'Duplicate entry',
+    status: 'NEW',
+    assignedToId: null,
+    assignedTo: null,
   });
 
   const matches = (l: FakeLead, where: any) => {
@@ -126,8 +132,13 @@ describe('Lead deactivate / reactivate', () => {
       }),
     },
     user: {
+      // user-1 is the signed-in user; u9 is an active user leads are assigned to.
       findUnique: jest.fn(async (args: any) =>
-        args.where.id === 'user-1' ? { id: 'user-1' } : null,
+        args.where.id === 'user-1'
+          ? { id: 'user-1' }
+          : args.where.id === 'u9'
+            ? { id: 'u9', fullName: 'User Nine', status: 'ACTIVE' }
+            : null,
       ),
     },
     leadSource: { findUnique: jest.fn(async () => ({ id: 's1' })) },
