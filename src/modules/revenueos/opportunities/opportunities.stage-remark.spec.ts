@@ -306,11 +306,10 @@ describe('Opportunity stage remark', () => {
     const src = (rel: string) =>
       fs.readFileSync(path.join(__dirname, '../../..', rel), 'utf8');
 
-    it('is written by updateStage only; every other timeline writer leaves userRemark alone', () => {
+    it('is written by updateStage and the lead unassignment only; every other timeline writer leaves userRemark alone', () => {
       const writers = [
         'modules/revenueos/leads/leads.service.ts',
         'modules/revenueos/lead-status/lead-status.service.ts',
-        'modules/revenueos/lead-assignments/lead-assignments.service.ts',
         'modules/revenueos/lead-followups/lead-followups.service.ts',
         'modules/adminos/webhooks/webhooks.service.ts',
         'core/whatsapp/whatsapp.service.ts',
@@ -321,6 +320,19 @@ describe('Opportunity stage remark', () => {
           /userRemark/g,
         ),
       ).toHaveLength(1);
+
+      // The assignment service writes it once, in unassign (LEAD_UNASSIGNED); assign,
+      // qualify and reject leave it alone.
+      const assignments = src(
+        'modules/revenueos/lead-assignments/lead-assignments.service.ts',
+      );
+      expect(assignments.match(/userRemark/g)).toHaveLength(1);
+      expect(assignments.indexOf('userRemark')).toBeGreaterThan(
+        assignments.indexOf('async unassign('),
+      );
+      expect(assignments.indexOf('async unassign(')).toBeGreaterThan(
+        assignments.indexOf('async rejectLead('),
+      );
     });
   });
 });
