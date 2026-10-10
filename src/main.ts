@@ -3,7 +3,9 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  // rawBody: the exact bytes of each request stay available next to the parsed body,
+  // for verifying the signature on WhatsApp webhook deliveries.
+  const app = await NestFactory.create(AppModule, { rawBody: true });
 
   app.useGlobalPipes(
     new ValidationPipe({

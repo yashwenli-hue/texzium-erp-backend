@@ -1,81 +1,298 @@
-import { Injectable } from '@nestjs/common';
-import { PrismaService } from '../database/prisma.service';
+import {
+  BadGatewayException,
+  ForbiddenException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import axios from 'axios';
+import { timingSafeEqual } from 'crypto';
+import { PrismaService } from '../database/prisma.service';
+import {
+  recordAdminAudit,
+  requireActor,
+} from '../../modules/adminos/identity-admin';
+import {
+  CreateWhatsAppConfigDto,
+  UpdateWhatsAppConfigDto,
+} from './dto/whatsapp-config.dto';
+import {
+  CreateWhatsAppBotConfigDto,
+  CreateWhatsAppDepartmentRouteDto,
+  SendWhatsAppMessageDto,
+} from './dto/whatsapp-bot.dto';
+import {
+  toWhatsAppConfigView,
+  WhatsAppConfigView,
+} from './whatsapp-config.view';
+
+// The Graph API base URL. Overridable (WHATSAPP_GRAPH_BASE_URL) so that tests can point
+// sends at a local stand-in; in production it is Meta's.
+export const DEFAULT_GRAPH_BASE_URL = 'https://graph.facebook.com/v20.0';
+
+const SEND_TIMEOUT_MS = 15000;
+
+function graphBaseUrl(): string {
+  return (
+    process.env.WHATSAPP_GRAPH_BASE_URL || DEFAULT_GRAPH_BASE_URL
+  ).replace(/\/+$/, '');
+}
+
+function sameSecret(given: string, stored: string): boolean {
+  const a = Buffer.from(given);
+  const b = Buffer.from(stored);
+
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
+// Meta's own error text, without anything that could be one of our credentials.
+function upstreamMessage(data: unknown, secrets: string[]): string | undefined {
+  const raw = (data as { error?: { message?: unknown } } | undefined)?.error
+    ?.message;
+  if (typeof raw !== 'string' || raw.length === 0) return undefined;
+
+  let text = raw.slice(0, 300);
+  for (const secret of secrets) {
+    if (secret) text = text.split(secret).join('[redacted]');
+  }
+
+  return text.replace(/Bearer\s+\S+/gi, 'Bearer [redacted]');
+}
 
 @Injectable()
 export class WhatsAppService {
+  private readonly logger = new Logger(WhatsAppService.name);
+
   constructor(private readonly prisma: PrismaService) {}
 
-  async createConfig(data: any) {
-    return this.prisma.whatsAppConfig.create({ data });
+  async createConfig(
+    data: CreateWhatsAppConfigDto,
+    actorId: string | undefined,
+  ): Promise<WhatsAppConfigView> {
+    return this.prisma.$transaction(async (tx) => {
+      const actor = await requireActor(tx, actorId);
+
+      const config = await tx.whatsAppConfig.create({
+        data: {
+          companyName: data.companyName,
+          whatsappNumber: data.whatsappNumber,
+          defaultSenderName: data.defaultSenderName,
+          phoneNumberId: data.phoneNumberId,
+          accessToken: data.accessToken,
+          businessAccount: data.businessAccount,
+          webhookToken: data.webhookToken || null,
+          isActive: data.isActive,
+        },
+      });
+
+      const view = toWhatsAppConfigView(config);
+
+      await recordAdminAudit(tx, {
+        actorId: actor.id,
+        action: 'WHATSAPP_CONFIG_CREATED',
+        module: 'WhatsApp',
+        recordId: config.id,
+        newData: {
+          companyName: view.companyName,
+          whatsappNumber: view.whatsappNumber,
+          phoneNumberId: view.phoneNumberId,
+          isActive: view.isActive,
+          accessTokenSet: view.accessTokenSet,
+          webhookTokenSet: view.webhookTokenSet,
+        },
+      });
+
+      return view;
+    });
   }
 
-  async createBotConfig(data: any) {
-    return this.prisma.whatsAppBotConfig.create({ data });
+  // A secret left out, or sent empty, keeps its stored value.
+  async updateConfig(
+    id: string,
+    data: UpdateWhatsAppConfigDto,
+    actorId: string | undefined,
+  ): Promise<WhatsAppConfigView> {
+    return this.prisma.$transaction(async (tx) => {
+      const actor = await requireActor(tx, actorId);
+
+      const existing = await tx.whatsAppConfig.findUnique({ where: { id } });
+      if (!existing) {
+        throw new NotFoundException('WhatsApp configuration not found.');
+      }
+
+      const update: Prisma.WhatsAppConfigUpdateInput = {};
+      const changedFields: string[] = [];
+
+      for (const field of [
+        'companyName',
+        'whatsappNumber',
+        'defaultSenderName',
+        'phoneNumberId',
+        'businessAccount',
+        'isActive',
+      ] as const) {
+        if (data[field] !== undefined && data[field] !== existing[field]) {
+          (update as Record<string, unknown>)[field] = data[field];
+          changedFields.push(field);
+        }
+      }
+
+      const accessTokenChanged =
+        !!data.accessToken && data.accessToken !== existing.accessToken;
+      if (accessTokenChanged) update.accessToken = data.accessToken;
+
+      const webhookTokenChanged =
+        !!data.webhookToken && data.webhookToken !== existing.webhookToken;
+      if (webhookTokenChanged) update.webhookToken = data.webhookToken;
+
+      const config = await tx.whatsAppConfig.update({
+        where: { id },
+        data: update,
+      });
+
+      await recordAdminAudit(tx, {
+        actorId: actor.id,
+        action: 'WHATSAPP_CONFIG_UPDATED',
+        module: 'WhatsApp',
+        recordId: id,
+        newData: { changedFields, accessTokenChanged, webhookTokenChanged },
+      });
+
+      return toWhatsAppConfigView(config);
+    });
   }
 
-  async createDepartmentRoute(data: any) {
-    return this.prisma.whatsAppDepartmentRoute.create({ data });
-  }
-
-  async getConfigs() {
-    return this.prisma.whatsAppConfig.findMany({
-      orderBy: {
-        createdAt: 'desc',
+  async createBotConfig(data: CreateWhatsAppBotConfigDto) {
+    return this.prisma.whatsAppBotConfig.create({
+      data: {
+        whatsappConfigId: data.whatsappConfigId,
+        welcomeMessage: data.welcomeMessage,
+        unknownUserMessage: data.unknownUserMessage,
+        enableCustomerLookup: data.enableCustomerLookup,
+        enableLeadCapture: data.enableLeadCapture,
+        enableHumanHandoff: data.enableHumanHandoff,
+        isActive: data.isActive,
       },
     });
   }
 
-  async sendMessage(
-    configId: string,
-    to: string,
-    message: string,
-  ) {
+  async createDepartmentRoute(data: CreateWhatsAppDepartmentRouteDto) {
+    return this.prisma.whatsAppDepartmentRoute.create({
+      data: {
+        botConfigId: data.botConfigId,
+        optionNumber: data.optionNumber,
+        departmentName: data.departmentName,
+        routeType: data.routeType,
+        roleId: data.roleId,
+        isActive: data.isActive,
+      },
+    });
+  }
+
+  async getConfigs(): Promise<WhatsAppConfigView[]> {
+    const rows = await this.prisma.whatsAppConfig.findMany({
+      orderBy: {
+        createdAt: 'desc',
+      },
+    });
+
+    return rows.map(toWhatsAppConfigView);
+  }
+
+  // Sends a text message through the Graph API. The access token is used here and
+  // nowhere else: the result is a plain summary, and any failure becomes a clean 502
+  // carrying only Meta's own error text, so neither a response nor a log line can ever
+  // contain the token (the raw axios response and error both do).
+  async sendMessage(data: SendWhatsAppMessageDto) {
     const config = await this.prisma.whatsAppConfig.findFirst({
       where: {
-        id: configId,
+        id: data.configId,
         isActive: true,
       },
     });
 
     if (!config) {
-      throw new Error('WhatsApp Config not found');
+      throw new NotFoundException('WhatsApp configuration not found.');
     }
 
-    const url = `https://graph.facebook.com/v20.0/${config.phoneNumberId}/messages`;
+    const url = `${graphBaseUrl()}/${encodeURIComponent(config.phoneNumberId)}/messages`;
 
-    return axios.post(
-      url,
-      {
-        messaging_product: 'whatsapp',
-        to,
-        type: 'text',
-        text: {
-          body: message,
+    let responseData: unknown;
+    try {
+      const response = await axios.post<unknown>(
+        url,
+        {
+          messaging_product: 'whatsapp',
+          to: data.to,
+          type: 'text',
+          text: {
+            body: data.message,
+          },
         },
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${config.accessToken}`,
-          'Content-Type': 'application/json',
+        {
+          headers: {
+            Authorization: `Bearer ${config.accessToken}`,
+            'Content-Type': 'application/json',
+          },
+          timeout: SEND_TIMEOUT_MS,
         },
-      },
-    );
+      );
+      responseData = response.data;
+    } catch (error) {
+      const upstreamStatus = axios.isAxiosError(error)
+        ? error.response?.status
+        : undefined;
+      const detail = axios.isAxiosError(error)
+        ? upstreamMessage(error.response?.data, [
+            config.accessToken,
+            config.webhookToken ?? '',
+          ])
+        : undefined;
+
+      this.logger.warn(
+        JSON.stringify({
+          event: 'whatsapp.send.failed',
+          configId: config.id,
+          upstreamStatus: upstreamStatus ?? null,
+          errorCode: axios.isAxiosError(error) ? (error.code ?? null) : null,
+        }),
+      );
+
+      throw new BadGatewayException(
+        upstreamStatus === undefined
+          ? 'WhatsApp could not be reached.'
+          : `WhatsApp did not accept the message${detail ? `: ${detail}` : '.'}`,
+      );
+    }
+
+    const messageId = (
+      responseData as { messages?: Array<{ id?: unknown }> } | undefined
+    )?.messages?.[0]?.id;
+
+    return {
+      status: 'SENT' as const,
+      messageId: typeof messageId === 'string' ? messageId : null,
+    };
   }
 
-  verifyWebhook(
-    mode: string,
-    token: string,
-    challenge: string,
-  ) {
-    if (
-      mode === 'subscribe' &&
-      token === 'TEXZIUM_WEBHOOK_SECRET'
-    ) {
-      return challenge;
+  // Meta's subscription handshake: answers the challenge only for the verify token
+  // stored on an active configuration (compared in constant time).
+  async verifyWebhook(mode: string, token: string, challenge: string) {
+    if (mode === 'subscribe' && typeof token === 'string' && token) {
+      const configs = await this.prisma.whatsAppConfig.findMany({
+        where: { isActive: true, webhookToken: { not: null } },
+        select: { webhookToken: true },
+      });
+
+      if (
+        configs.some((c) => c.webhookToken && sameSecret(token, c.webhookToken))
+      ) {
+        return challenge;
+      }
     }
 
-    throw new Error('Webhook verification failed');
+    throw new ForbiddenException('Webhook verification failed.');
   }
 
   async handleIncomingMessage(body: any) {

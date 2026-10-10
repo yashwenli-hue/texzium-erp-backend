@@ -66,8 +66,36 @@ describe('redactCredentials', () => {
 
   it('keeps other fields that merely look similar', () => {
     expect(
-      redactCredentials({ password_policy: 'strong', hashCode: 3 }),
-    ).toEqual({ password_policy: 'strong', hashCode: 3 });
+      redactCredentials({
+        password_policy: 'strong',
+        hashCode: 3,
+        access_token: 'login token returned by POST /auth/login',
+        accessTokenSet: true,
+        webhookTokenSet: false,
+      }),
+    ).toEqual({
+      password_policy: 'strong',
+      hashCode: 3,
+      access_token: 'login token returned by POST /auth/login',
+      accessTokenSet: true,
+      webhookTokenSet: false,
+    });
+  });
+
+  it('removes integration and messaging credentials at any depth', () => {
+    expect(
+      redactCredentials({
+        whatsapp: [{ id: 'w1', accessToken: 'a', webhookToken: 'w' }],
+        smtp: { id: 's1', smtpUser: 'u', smtpPass: 'p' },
+        connector: { id: 'c1', apiKey: 'k', apiSecret: 's' },
+        gateway: { id: 'g1', apiKey: 'k', secretKey: 's' },
+      }),
+    ).toEqual({
+      whatsapp: [{ id: 'w1' }],
+      smtp: { id: 's1', smtpUser: 'u' },
+      connector: { id: 'c1' },
+      gateway: { id: 'g1' },
+    });
   });
 });
 

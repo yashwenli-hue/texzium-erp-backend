@@ -7,7 +7,18 @@ import {
 import { map, Observable } from 'rxjs';
 
 // Credential fields that must never leave the server, at any depth of a response.
-export const CREDENTIAL_FIELDS: ReadonlySet<string> = new Set(['passwordHash']);
+export const CREDENTIAL_FIELDS: ReadonlySet<string> = new Set([
+  'passwordHash',
+  // WhatsApp Cloud API access token and webhook verify token
+  'accessToken',
+  'webhookToken',
+  // SMTP password
+  'smtpPass',
+  // integration connectors and payment gateways
+  'apiKey',
+  'apiSecret',
+  'secretKey',
+]);
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   if (value === null || typeof value !== 'object') return false;
@@ -51,7 +62,7 @@ export function redactCredentials<T>(value: T): T {
 }
 
 // Registered globally (APP_INTERCEPTOR in AuthModule). A safety net: services must still
-// select only safe user fields (core/security/user-select.ts).
+// return only safe fields (core/security/user-select.ts, whatsapp-config.view.ts).
 @Injectable()
 export class CredentialRedactionInterceptor implements NestInterceptor {
   intercept(

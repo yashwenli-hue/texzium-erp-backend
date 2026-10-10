@@ -62,7 +62,11 @@ export async function recordAdminAudit(
       | 'USER_CREATED'
       | 'ROLE_CREATED'
       | 'PERMISSION_CREATED'
-      | 'ROLE_PERMISSION_ASSIGNED';
+      | 'ROLE_PERMISSION_ASSIGNED'
+      | 'WHATSAPP_CONFIG_CREATED'
+      | 'WHATSAPP_CONFIG_UPDATED';
+    // Defaults to AdminOS.
+    module?: 'AdminOS' | 'WhatsApp';
     recordId: string;
     newData: Prisma.InputJsonObject;
   },
@@ -71,7 +75,7 @@ export async function recordAdminAudit(
     data: {
       userId: entry.actorId,
       action: entry.action,
-      module: 'AdminOS',
+      module: entry.module ?? 'AdminOS',
       recordId: entry.recordId,
       newData: entry.newData,
     },

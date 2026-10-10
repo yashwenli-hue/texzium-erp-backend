@@ -13,6 +13,7 @@ import { ModulesContainer } from '@nestjs/core';
 import { JwtService } from '@nestjs/jwt';
 import { Test } from '@nestjs/testing';
 import { Prisma } from '@prisma/client';
+import { createHmac } from 'crypto';
 import request from 'supertest';
 
 import { AppModule } from '../../app.module';
@@ -253,7 +254,8 @@ describe('Default-deny authentication across every route', () => {
       .useValue({})
       .compile();
 
-    app = moduleRef.createNestApplication({ logger: false });
+    // rawBody as in main.ts (WhatsApp webhook signatures are checked on the raw body).
+    app = moduleRef.createNestApplication({ logger: false, rawBody: true });
     // As in main.ts.
     app.useGlobalPipes(
       new ValidationPipe({
@@ -439,13 +441,50 @@ describe('Default-deny authentication across every route', () => {
       expect(calls).toEqual(['connector.findFirst']);
     });
 
-    it('POST /whatsapp/webhook accepts a delivery without a token', async () => {
-      const res = await request(app.getHttpServer())
-        .post('/whatsapp/webhook')
-        .send({ entry: [] });
+    describe('POST /whatsapp/webhook (no login token; Meta signature required)', () => {
+      const SECRET = 'route-authentication-spec-app-secret';
+      const BODY = JSON.stringify({ entry: [] });
+      const sign = (body: string, key = SECRET) =>
+        `sha256=${createHmac('sha256', key).update(body).digest('hex')}`;
+      const deliver = (signature?: string) => {
+        const req = request(app.getHttpServer())
+          .post('/whatsapp/webhook')
+          .set('Content-Type', 'application/json');
+        if (signature) req.set('X-Hub-Signature-256', signature);
+        return req.send(BODY);
+      };
+      let saved: string | undefined;
 
-      expect(res.status).toBe(201);
-      expect(res.body).toEqual({ message: 'No incoming message' });
+      beforeAll(() => {
+        saved = process.env.WHATSAPP_APP_SECRET;
+      });
+      afterAll(() => {
+        if (saved === undefined) delete process.env.WHATSAPP_APP_SECRET;
+        else process.env.WHATSAPP_APP_SECRET = saved;
+      });
+
+      it('accepts a correctly signed delivery without a token', async () => {
+        process.env.WHATSAPP_APP_SECRET = SECRET;
+        const res = await deliver(sign(BODY));
+
+        expect(res.status).toBe(201);
+        expect(res.body).toEqual({ message: 'No incoming message' });
+      });
+
+      it('refuses an unsigned or wrongly signed delivery (401)', async () => {
+        process.env.WHATSAPP_APP_SECRET = SECRET;
+
+        expect((await deliver()).status).toBe(401);
+        expect((await deliver(sign(BODY, 'another-key'))).status).toBe(401);
+        expect(calls).toEqual([]);
+      });
+
+      it('refuses every delivery while no secret is configured (503)', async () => {
+        delete process.env.WHATSAPP_APP_SECRET;
+
+        expect((await deliver(sign(BODY))).status).toBe(503);
+        expect(calls).toEqual([]);
+      });
     });
 
     it('GET /whatsapp/webhook (the verification handshake) is not public', async () => {
