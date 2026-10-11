@@ -114,7 +114,6 @@ import { ProjectTasksModule } from './modules/projectos/project-tasks/project-ta
 import { ProjectCostsModule } from './modules/projectos/project-costs/project-costs.module';
 import { ProjectBillingModule } from './modules/projectos/project-billing/project-billing.module';
 import { ProjectProfitabilityModule } from './modules/projectos/project-profitability/project-profitability.module';
-import { DocumentRepositoryModule } from './modules/documentos/document-repository/document-repository.module';
 import { DatabaseModule } from './core/database/database.module';
 import { GstReconciliationModule } from './modules/complianceos/gst-reconciliation/gst-reconciliation.module';
 import { EInvoiceIrnModule } from './modules/complianceos/e-invoice-irn/e-invoice-irn.module';
@@ -243,7 +242,6 @@ import { DocumentNumberSeriesModule } from './modules/adminos/document-number-se
     ProjectCostsModule,
     ProjectBillingModule,
     ProjectProfitabilityModule,
-    DocumentRepositoryModule,
     DatabaseModule,
     GstReconciliationModule,
     EInvoiceIrnModule,
