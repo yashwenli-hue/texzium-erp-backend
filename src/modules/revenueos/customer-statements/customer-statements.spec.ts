@@ -515,6 +515,78 @@ describe('GET /customers/:id/statement', () => {
     });
   });
 
+  describe('GET /customers/:id/statement.pdf', () => {
+    const pdf = (
+      url: string,
+      permissions: string[] | null = ['collections.view'],
+    ) =>
+      get(url, permissions)
+        .buffer(true)
+        .parse((res: any, cb: (e: Error | null, b: Buffer) => void) => {
+          const chunks: Buffer[] = [];
+          res.on('data', (c: Buffer) => chunks.push(c));
+          res.on('end', () => cb(null, Buffer.concat(chunks)));
+        });
+
+    it('declares collections.view and nothing else', () => {
+      expect(
+        Reflect.getMetadata(
+          PERMISSIONS_KEY,
+          CustomerStatementsController.prototype.statementPdf,
+        ),
+      ).toEqual(['collections.view']);
+    });
+
+    it('401 without a token, 403 without collections.view', async () => {
+      expect((await pdf(`/customers/${A}/statement.pdf`, null)).status).toBe(
+        401,
+      );
+      expect(
+        (await pdf(`/customers/${A}/statement.pdf`, ['customers.view'])).status,
+      ).toBe(403);
+      expect(db.customer.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('streams a PDF built in memory, as an attachment with safe headers', async () => {
+      const res = await pdf(
+        `/customers/${A}/statement.pdf?from=2026-04-15&to=2026-05-01`,
+      );
+      expect(res.status).toBe(200);
+      expect(res.body.subarray(0, 5).toString()).toBe('%PDF-');
+      expect(res.headers['content-type']).toBe('application/pdf');
+      expect(res.headers['content-disposition']).toBe(
+        'attachment; filename="statement-CUST-A-2026-04-15-2026-05-01.pdf"',
+      );
+      expect(res.headers['content-length']).toBe(String(res.body.length));
+      expect(res.headers['x-content-type-options']).toBe('nosniff');
+      expect(res.headers['cache-control']).toBe('private, no-store');
+    });
+
+    it('names an all-time statement after today', async () => {
+      const res = await pdf(`/customers/${B}/statement.pdf`);
+      expect(res.headers['content-disposition']).toBe(
+        `attachment; filename="statement-CUST-B-all-${new Date().toISOString().slice(0, 10)}.pdf"`,
+      );
+    });
+
+    it('answers refusals as JSON, like the statement itself', async () => {
+      expect((await get(`/customers/${UNKNOWN}/statement.pdf`)).status).toBe(
+        404,
+      );
+      expect(
+        (await get(`/customers/${A}/statement.pdf?from=2026-02-30`)).status,
+      ).toBe(400);
+      expect(
+        (
+          await get(
+            `/customers/${A}/statement.pdf?from=2026-05-02&to=2026-05-01`,
+          )
+        ).status,
+      ).toBe(400);
+      expect((await get(`/customers/${BUSY}/statement.pdf`)).status).toBe(422);
+    });
+  });
+
   describe('the name-based routes are gone', () => {
     it.each([
       '/customer-statements/Raj%20Traders',
