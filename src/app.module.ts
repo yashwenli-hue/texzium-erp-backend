@@ -83,7 +83,6 @@ import { GstReturnsModule } from './modules/complianceos/gst-returns/gst-returns
 import { EInvoiceModule } from './modules/complianceos/e-invoice/e-invoice.module';
 import { CollectionRemindersModule } from './modules/revenueos/collection-reminders/collection-reminders.module';
 import { CustomerStatementsModule } from './modules/revenueos/customer-statements/customer-statements.module';
-import { StatementPdfModule } from './modules/revenueos/statement-pdf/statement-pdf.module';
 import { PaymentGatewayConfigModule } from './modules/adminos/payment-gateway-config/payment-gateway-config.module';
 import { PaymentLinksModule } from './modules/revenueos/payment-links/payment-links.module';
 import { ReceiptVouchersModule } from './modules/financeos/receipt-vouchers/receipt-vouchers.module';
@@ -211,7 +210,6 @@ import { DocumentNumberSeriesModule } from './modules/adminos/document-number-se
     GstReturnsModule,
     EInvoiceModule,
     CustomerStatementsModule,    
-    StatementPdfModule,
     PaymentGatewayConfigModule,
     PaymentLinksModule,
     ReceiptVouchersModule,

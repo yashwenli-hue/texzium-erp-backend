@@ -10,20 +10,11 @@ import {
   CUSTOMER_INCLUDE,
   CUSTOMER_NOT_FOUND_MESSAGE,
 } from './customer-lifecycle';
+import { findLegacyMatches } from './customer-legacy-matches';
 
 const SALES_ORDER_CANCELLED = 'CANCELLED';
 const INVOICE_DRAFT = 'DRAFT';
 const RECEIVABLE_WRITTEN_OFF = 'WRITTEN_OFF';
-
-type LegacyMatch = {
-  id: string;
-  title: string;
-  status: string;
-  leadName: string;
-  leadCompany: string | null;
-  quotationCount: number;
-  matchedBy: 'LEAD_NAME' | 'LEAD_COMPANY';
-};
 
 const sum = (values: number[]) =>
   roundMoney(values.reduce((total, v) => total + v, 0));
@@ -167,35 +158,10 @@ export class CustomerOverviewService {
         })
       : [];
 
-    const legacyMatches = await this.prisma.$queryRaw<LegacyMatch[]>`
-      /* customer:legacy-matches */
-      SELECT
-        o."id",
-        o."title",
-        o."status",
-        l."customerName" AS "leadName",
-        l."companyName"  AS "leadCompany",
-        (SELECT count(*)::int FROM "Quotation" q WHERE q."opportunityId" = o."id") AS "quotationCount",
-        CASE
-          WHEN lower(regexp_replace(btrim(l."customerName"), '[[:space:]]+', ' ', 'g'))
-             = lower(regexp_replace(btrim(${customer.customerName}::text), '[[:space:]]+', ' ', 'g'))
-          THEN 'LEAD_NAME'
-          ELSE 'LEAD_COMPANY'
-        END AS "matchedBy"
-      FROM "Opportunity" o
-      JOIN "Lead" l ON l."id" = o."leadId"
-      WHERE o."customerId" IS NULL
-        AND (
-          lower(regexp_replace(btrim(l."customerName"), '[[:space:]]+', ' ', 'g'))
-            = lower(regexp_replace(btrim(${customer.customerName}::text), '[[:space:]]+', ' ', 'g'))
-          OR (
-            l."companyName" IS NOT NULL
-            AND lower(regexp_replace(btrim(l."companyName"), '[[:space:]]+', ' ', 'g'))
-              = lower(regexp_replace(btrim(${customer.customerName}::text), '[[:space:]]+', ' ', 'g'))
-          )
-        )
-      ORDER BY o."createdAt" DESC
-    `;
+    const legacyMatches = await findLegacyMatches(
+      this.prisma,
+      customer.customerName,
+    );
 
     const now = new Date();
 
