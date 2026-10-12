@@ -892,6 +892,7 @@ model PaymentCollection {
 
   accountsReceivable AccountsReceivable      @relation(fields: [accountsReceivableId], references: [id])
   events             PaymentCollectionEvent[]
+  receiptVoucher     ReceiptVoucher?
 
   @@index([accountsReceivableId, paymentDate])
   @@index([recordedById])
@@ -1758,10 +1759,13 @@ model PaymentGatewayConfig {
   updatedAt DateTime @updatedAt
 }
 
+// One receipt per payment collection (manual migration
+// 20261015_receipt_voucher_governance.sql). Receipts generated from then on are
+// numbered RC/<FY>/<sequence>; older ones keep their RCPT-... numbers.
 model ReceiptVoucher {
   id                  String   @id @default(uuid())
-  receiptNumber       String?
-  paymentCollectionId String
+  receiptNumber       String?  @unique
+  paymentCollectionId String   @unique
   receiptDate         DateTime
   amountReceived      Float
   paymentMode         String
@@ -1770,6 +1774,8 @@ model ReceiptVoucher {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  paymentCollection PaymentCollection @relation(fields: [paymentCollectionId], references: [id])
 }
 
 model CreditNote {

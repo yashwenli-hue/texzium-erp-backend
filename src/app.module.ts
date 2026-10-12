@@ -86,7 +86,6 @@ import { CustomerStatementsModule } from './modules/revenueos/customer-statement
 import { PaymentGatewayConfigModule } from './modules/adminos/payment-gateway-config/payment-gateway-config.module';
 import { PaymentLinksModule } from './modules/revenueos/payment-links/payment-links.module';
 import { ReceiptVouchersModule } from './modules/financeos/receipt-vouchers/receipt-vouchers.module';
-import { ReceiptPdfModule } from './modules/financeos/receipt-pdf/receipt-pdf.module';
 import { CreditNotesModule } from './modules/financeos/credit-notes/credit-notes.module';
 import { DebitNotesModule } from './modules/financeos/debit-notes/debit-notes.module';
 import { RefundVouchersModule } from './modules/financeos/refund-vouchers/refund-vouchers.module';
@@ -213,7 +212,6 @@ import { DocumentNumberSeriesModule } from './modules/adminos/document-number-se
     PaymentGatewayConfigModule,
     PaymentLinksModule,
     ReceiptVouchersModule,
-    ReceiptPdfModule,
     CreditNotesModule,
     DebitNotesModule,
     RefundVouchersModule,
