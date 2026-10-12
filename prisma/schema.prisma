@@ -2241,6 +2241,23 @@ model DocumentNumberSeries {
   updatedAt DateTime @updatedAt
 }
 
+// The last number issued in one numbering series: a document type, a scope (a
+// seller GST registration id, or "COMPANY") and an Indian financial year
+// ("2026-27"). Numbers are taken inside the transaction that creates the
+// document (see document-numbering.ts), so they are consecutive with no gaps:
+// a document that is not created gives its number back.
+model DocumentNumberCounter {
+  id            String   @id @default(uuid())
+  documentType  String
+  scopeKey      String
+  financialYear String
+  lastNumber    Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([documentType, scopeKey, financialYear])
+}
+
 // ==========================================================
 // INVENTORY ENGINE V2
 // BATCH 1 — WAREHOUSE / LOCATION / INVENTORY BALANCE
