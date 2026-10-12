@@ -15,6 +15,7 @@ import {
   signContentAccess,
 } from './content-access';
 import { ContentStorage } from './content-storage';
+import { ContentUploadsService } from './content-uploads.service';
 import { CONTENT_TYPES, ContentKind, displayName } from './content-types';
 import {
   CONTENT_TAG_MAX,
@@ -90,7 +91,24 @@ export class ContentLibraryService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly storage: ContentStorage,
+    private readonly uploads: ContentUploadsService,
   ) {}
+
+  // The file to ingest: the multipart file, or a finished piecewise upload of this user.
+  private async fileFrom(
+    file: UploadedTemp | undefined,
+    uploadId: string | undefined,
+    actorId: string | undefined,
+  ): Promise<UploadedTemp> {
+    if (file && uploadId) {
+      throw new BadRequestException(
+        'Send either a file or an upload id, not both.',
+      );
+    }
+    if (file) return file;
+    if (uploadId) return this.uploads.take(uploadId, actorId);
+    throw new BadRequestException('Choose a file to upload.');
+  }
 
   async list(query: ListContentAssetsQueryDto) {
     const where: Prisma.ContentAssetWhereInput = {};
@@ -161,12 +179,12 @@ export class ContentLibraryService {
 
   async create(
     body: CreateContentAssetDto,
-    file: UploadedTemp | undefined,
+    upload: UploadedTemp | undefined,
     actorId?: string,
   ) {
-    if (!file) throw new BadRequestException('Choose a file to upload.');
     const tags = normaliseTags(body.tags);
     await this.assertInventoryItem(this.prisma, body.inventoryItemId);
+    const file = await this.fileFrom(upload, body.uploadId, actorId);
     const stored = await this.storage.ingest(
       file.path,
       file.originalname,
@@ -211,14 +229,15 @@ export class ContentLibraryService {
 
   async addVersion(
     id: string,
-    file: UploadedTemp | undefined,
+    upload: UploadedTemp | undefined,
     actorId?: string,
+    uploadId?: string,
   ) {
-    if (!file) throw new BadRequestException('Choose a file to upload.');
     const asset = await this.prisma.contentAsset.findUnique({ where: { id } });
     if (!asset) throw new NotFoundException(CONTENT_ASSET_NOT_FOUND);
     if (asset.status !== 'ACTIVE')
       throw new ConflictException(CONTENT_ARCHIVED_MESSAGE);
+    const file = await this.fileFrom(upload, uploadId, actorId);
     const stored = await this.storage.ingest(
       file.path,
       file.originalname,

@@ -19,6 +19,7 @@ import { PermissionsGuard } from '../../../core/guards/permissions.guard';
 import { Permissions } from '../../../core/decorators/permissions.decorator';
 import { ContentLibraryService } from './content-library.service';
 import { CONTENT_UPLOAD_OPTIONS, ContentUploadCleanup } from './content-upload';
+import { AddVersionDto } from './dto/content-upload.dto';
 import {
   ArchiveContentAssetDto,
   ContentAccessUrlDto,
@@ -82,10 +83,11 @@ export class ContentLibraryController {
   )
   addVersion(
     @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() body: AddVersionDto,
     @UploadedFile() file: UploadedTemp | undefined,
     @Req() req: AuthenticatedRequest,
   ) {
-    return this.library.addVersion(id, file, req.user?.id);
+    return this.library.addVersion(id, file, req.user?.id, body.uploadId);
   }
 
   @Post(':id/archive')

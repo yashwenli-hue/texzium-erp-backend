@@ -54,6 +54,11 @@ export class CreateContentAssetDto {
   @IsOptional()
   @IsUUID()
   inventoryItemId?: string;
+
+  // a finished piecewise upload (POST /content-uploads), instead of a multipart file
+  @IsOptional()
+  @IsUUID()
+  uploadId?: string;
 }
 
 export class UpdateContentAssetDto {

@@ -7,6 +7,8 @@ import { ContentLibraryService } from './content-library.service';
 import { ContentStorage } from './content-storage';
 import { ContentSharesController } from './content-shares.controller';
 import { ContentSharesService } from './content-shares.service';
+import { ContentUploadsController } from './content-uploads.controller';
+import { ContentUploadsService } from './content-uploads.service';
 
 @Module({
   imports: [DatabaseModule],
@@ -14,8 +16,14 @@ import { ContentSharesService } from './content-shares.service';
     ContentLibraryController,
     ContentFilesController,
     ContentSharesController,
+    ContentUploadsController,
   ],
-  providers: [ContentLibraryService, ContentStorage, ContentSharesService],
+  providers: [
+    ContentLibraryService,
+    ContentStorage,
+    ContentSharesService,
+    ContentUploadsService,
+  ],
   exports: [ContentLibraryService, ContentStorage],
 })
 export class ContentLibraryModule {}

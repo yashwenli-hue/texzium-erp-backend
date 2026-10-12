@@ -189,6 +189,32 @@ describe('content library: who may do what (real JWT and permission guards)', ()
             t,
           ),
       },
+      {
+        name: 'POST /content-uploads',
+        perms: ['content.manage'],
+        send: (t) =>
+          withToken(request(server()).post('/content-uploads'), t).send({
+            fileName: 'a.mp4',
+            sizeBytes: 10,
+          }),
+      },
+      {
+        name: 'PUT /content-uploads/:id/chunks',
+        perms: ['content.manage'],
+        send: (t) =>
+          withToken(
+            request(server()).put(`/content-uploads/${ASSET}/chunks?offset=0`),
+            t,
+          )
+            .set('Content-Type', 'application/octet-stream')
+            .send(Buffer.from('0123456789')),
+      },
+      {
+        name: 'DELETE /content-uploads/:id',
+        perms: ['content.manage'],
+        send: (t) =>
+          withToken(request(server()).delete(`/content-uploads/${ASSET}`), t),
+      },
     );
   });
 
@@ -207,7 +233,7 @@ describe('content library: who may do what (real JWT and permission guards)', ()
     (await fs.readdir(path.join(root, 'tmp')).catch(() => [])).length;
 
   it('every content route answers 401 without a token, before anything is read or stored', async () => {
-    expect(ROUTES).toHaveLength(10);
+    expect(ROUTES).toHaveLength(13);
     for (const route of ROUTES) {
       const res = await route.send(null);
       expect([route.name, res.status]).toEqual([route.name, 401]);
