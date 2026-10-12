@@ -20,4 +20,8 @@ export const PUBLIC_ROUTES = [
   'POST /webhooks/:platform',
   // Incoming WhatsApp messages delivered by the WhatsApp Cloud API.
   'POST /whatsapp/webhook',
+  // A content file opened by the browser itself (<img>, <video>, a download link), which
+  // cannot carry the login token: only with a signature, issued to a signed-in user with
+  // content.view, that names this one file and expires after 15 minutes.
+  'GET /content-files/:fileId',
 ] as const;

@@ -124,6 +124,7 @@ import { InventoryTransactionsModule } from './modules/operationsos/inventory-tr
 import { InventoryEngineModule } from './modules/operationsos/inventory-engine/inventory-engine.module';
 import { DocumentNumberSeriesModule } from './modules/adminos/document-number-series/document-number-series.module';
 import { DocumentProfileModule } from './modules/adminos/document-profile/document-profile.module';
+import { ContentLibraryModule } from './modules/revenueos/content-library/content-library.module';
 
 
 @Module({
@@ -251,6 +252,7 @@ import { DocumentProfileModule } from './modules/adminos/document-profile/docume
     InventoryEngineModule,
     DocumentNumberSeriesModule,
     DocumentProfileModule,
+    ContentLibraryModule,
     ],
 })
 export class AppModule {}
