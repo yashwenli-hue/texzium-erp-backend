@@ -286,6 +286,20 @@ describe('Quotation creation over HTTP', () => {
     });
   });
 
+  it('rounds the taxable amount of a fractional quantity to the paisa', async () => {
+    // 1.234 x 10.01 = 12.35234 -> 12.35; GST 18% = 2.223 -> 2.22
+    const res = await create({ quantity: 1.234, unitPrice: 10.01 }).expect(201);
+    expect(res.body).toMatchObject({
+      taxableAmount: 12.35,
+      gstAmount: 2.22,
+      totalAmount: 14.57,
+    });
+    expect(ctx.state.lines[0]).toMatchObject({
+      taxableAmount: 12.35,
+      totalAmount: 14.57,
+    });
+  });
+
   it.each([
     ['a zero quantity', { quantity: 0 }],
     ['a negative unit rate', { unitPrice: -1 }],
