@@ -857,7 +857,7 @@ model PurchaseOrder {
 model SalesInvoice {
   id                    String               @id @default(uuid())
   salesOrderId          String
-  invoiceNumber         String?
+  invoiceNumber         String?              @unique
   invoiceDate           DateTime
   taxableAmount         Float
   gstAmount             Float
@@ -1906,6 +1906,11 @@ model BadDebtWriteOff {
   accountsReceivable AccountsReceivable @relation(fields: [accountsReceivableId], references: [id])
 }
 
+// An invoice's lines. Invoices issued since manual migration
+// 20261015_sales_invoice_lines.sql get a copy of the priced
+// lines they were sold with (the Proforma's, else the Quotation's): the line
+// number, description, HSN, GST rate and CGST/SGST/IGST are filled and
+// "sourceLineId" names the line copied. Older items have them empty.
 model SalesInvoiceItem {
   id             String @id @default(uuid())
   salesInvoiceId String
@@ -1915,6 +1920,15 @@ model SalesInvoiceItem {
   taxableAmount  Float
   gstAmount      Float
   totalAmount    Float
+
+  lineNumber   Int?
+  description  String?
+  hsnCode      String?
+  gstRate      Float?
+  cgstAmount   Float?
+  sgstAmount   Float?
+  igstAmount   Float?
+  sourceLineId String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
