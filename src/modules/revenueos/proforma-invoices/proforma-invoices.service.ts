@@ -1,4 +1,8 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../../../core/database/prisma.service';
 import { CreateProformaInvoiceDto } from './dto/create-proforma-invoice.dto';
 import { ApproveProformaInvoiceDto } from './dto/approve-proforma-invoice.dto';
@@ -31,6 +35,10 @@ import {
   DOCUMENT_NUMBER_TYPE,
   allocateDocumentNumber,
 } from '../../adminos/document-number-series/document-numbering';
+
+import { loadDocumentIssuer } from '../../adminos/document-profile/document-identity';
+import type { ProformaDocumentData } from './proforma-document';
+import { PROFORMA_NOT_FOUND_MESSAGE } from './proforma-lifecycle';
 
 export const PROFORMA_LINES_ORDER = { lineNumber: 'asc' } as const;
 
@@ -162,6 +170,47 @@ export class ProformaInvoicesService {
 
       return proforma;
     });
+  }
+
+  // Everything the Proforma document prints, read as stored.
+  async documentData(id: string): Promise<ProformaDocumentData> {
+    const p = await this.prisma.proformaInvoice.findUnique({
+      where: { id },
+      include: {
+        lines: { orderBy: PROFORMA_LINES_ORDER },
+        quotation: {
+          include: { opportunity: { select: { customerId: true } } },
+        },
+      },
+    });
+    if (!p) throw new NotFoundException(PROFORMA_NOT_FOUND_MESSAGE);
+
+    const q = p.quotation;
+    const customer = q.opportunity?.customerId
+      ? await this.prisma.customer.findUnique({
+          where: { id: q.opportunity.customerId },
+          select: { id: true, customerName: true, customerCode: true },
+        })
+      : null;
+    const buyer = q.buyerGstId
+      ? await this.prisma.customerGSTRegistration.findUnique({
+          where: { id: q.buyerGstId },
+        })
+      : null;
+
+    return {
+      proforma: {
+        ...p,
+        isExpired: isProformaExpired(p.validityDate, new Date()),
+      },
+      quotation: q,
+      lines: p.lines,
+      customer,
+      buyer:
+        buyer && (!customer || buyer.customerId === customer.id) ? buyer : null,
+      issuer: await loadDocumentIssuer(this.prisma, q.sellerGstId),
+      generatedAt: new Date(),
+    };
   }
 
   // Every Proforma with its Quotation. `isExpired` is derived from the

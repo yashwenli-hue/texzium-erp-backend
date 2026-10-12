@@ -4,6 +4,11 @@ import {
   DOCUMENT_NUMBER_TYPE,
   allocateDocumentNumber,
 } from '../../adminos/document-number-series/document-numbering';
+import { loadDocumentIssuer } from '../../adminos/document-profile/document-identity';
+import { resolveOrderParties } from '../../revenueos/documents/revenue-document-parts';
+import type { ReceiptDocumentData } from './receipt-document';
+
+export const RECEIPT_NOT_FOUND_MESSAGE = 'Receipt not found.';
 
 export const PAYMENT_COLLECTION_NOT_FOUND_MESSAGE =
   'Payment collection not found.';
@@ -61,6 +66,47 @@ export class ReceiptVouchersService {
         },
       });
     });
+  }
+
+  // Everything the receipt document prints, read as stored: the receipt, the
+  // invoice its payment was taken against, the balances recorded with the
+  // payment, the customer and the issuer.
+  async documentData(id: string): Promise<ReceiptDocumentData> {
+    const receipt = await this.prisma.receiptVoucher.findUnique({
+      where: { id },
+      include: {
+        paymentCollection: {
+          include: {
+            accountsReceivable: { include: { salesInvoice: true } },
+            events: {
+              where: { action: 'PAYMENT_RECORDED' },
+              orderBy: { occurredAt: 'asc' },
+              take: 1,
+            },
+          },
+        },
+      },
+    });
+    if (!receipt) throw new NotFoundException(RECEIPT_NOT_FOUND_MESSAGE);
+
+    const invoice = receipt.paymentCollection.accountsReceivable.salesInvoice;
+    const event = receipt.paymentCollection.events[0] ?? null;
+    const parties = invoice
+      ? await resolveOrderParties(this.prisma, invoice.salesOrderId)
+      : null;
+
+    return {
+      receipt,
+      invoice,
+      event,
+      customer: parties?.customer ?? null,
+      buyer: parties?.buyer ?? null,
+      issuer: await loadDocumentIssuer(
+        this.prisma,
+        parties?.sellerGstId ?? null,
+      ),
+      generatedAt: new Date(),
+    };
   }
 
   // The receipts of the payments collected against one sales invoice, oldest

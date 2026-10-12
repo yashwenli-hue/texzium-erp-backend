@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../../../core/database/prisma.service';
 import { CreateSalesInvoiceDto } from './dto/create-sales-invoice.dto';
@@ -13,6 +14,12 @@ import {
 } from '../../adminos/document-number-series/document-numbering';
 import { lockSalesOrderForInvoice } from './invoice-order-lock';
 import { loadInvoiceSource, planInvoice } from './invoice-source';
+import { loadDocumentIssuer } from '../../adminos/document-profile/document-identity';
+import { resolveOrderParties } from '../documents/revenue-document-parts';
+import {
+  InvoiceDocumentData,
+  invoiceDocumentBlockers,
+} from './invoice-document';
 
 export const ALREADY_INVOICED_MESSAGE =
   'This Sales Order has already been invoiced. An order is invoiced once, for its full value; no invoice was created.';
@@ -273,6 +280,58 @@ export class SalesInvoicesService {
       console.log(error);
       throw error;
     }
+  }
+
+  // Everything the tax invoice document prints, read as stored, or a 409 that
+  // says why this invoice cannot be printed as a tax invoice.
+  async documentData(id: string): Promise<InvoiceDocumentData> {
+    const invoice = await this.prisma.salesInvoice.findUnique({
+      where: { id },
+      include: {
+        SalesInvoiceItem: {
+          orderBy: [{ lineNumber: 'asc' }, { createdAt: 'asc' }],
+        },
+      },
+    });
+    if (!invoice) throw new NotFoundException('Sales invoice not found.');
+
+    const parties = await resolveOrderParties(
+      this.prisma,
+      invoice.salesOrderId,
+    );
+    const data: InvoiceDocumentData = {
+      invoice,
+      items: invoice.SalesInvoiceItem.map((i) => ({
+        lineNumber: i.lineNumber,
+        description: i.description,
+        hsnCode: i.hsnCode,
+        quantity: i.quantity,
+        unitRate: i.rate,
+        taxableAmount: i.taxableAmount,
+        gstRate: i.gstRate,
+        cgstAmount: i.cgstAmount,
+        sgstAmount: i.sgstAmount,
+        igstAmount: i.igstAmount,
+        gstAmount: i.gstAmount,
+        totalAmount: i.totalAmount,
+      })),
+      order: parties,
+      customer: parties?.customer ?? null,
+      buyer: parties?.buyer ?? null,
+      issuer: await loadDocumentIssuer(
+        this.prisma,
+        parties?.sellerGstId ?? null,
+      ),
+      generatedAt: new Date(),
+    };
+
+    const blockers = invoiceDocumentBlockers(data);
+    if (blockers.length > 0) {
+      throw new ConflictException(
+        `This invoice cannot be printed as a tax invoice: ${blockers.join('; ')}.`,
+      );
+    }
+    return data;
   }
 
   async findAll() {

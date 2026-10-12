@@ -11,6 +11,7 @@ import { ReviseQuotationDto } from './dto/revise-quotation.dto';
 import { RejectQuotationDto } from './dto/reject-quotation.dto';
 import {
   QUOTATION_EVENT_ACTION,
+  QUOTATION_NOT_FOUND_MESSAGE,
   QUOTATION_STATUS,
   assertNoActiveDownstreamDocuments,
   computeQuotationAmounts,
@@ -42,6 +43,9 @@ import {
   DOCUMENT_NUMBER_TYPE,
   allocateDocumentNumber,
 } from '../../adminos/document-number-series/document-numbering';
+
+import { loadDocumentIssuer } from '../../adminos/document-profile/document-identity';
+import type { QuotationDocumentData } from './quotation-document';
 
 export const QUOTATION_LINES_ORDER = { lineNumber: 'asc' } as const;
 
@@ -214,6 +218,43 @@ export class QuotationsService {
         lines: { orderBy: QUOTATION_LINES_ORDER },
       },
     });
+  }
+
+  // Everything the quotation document prints, read as stored: the quotation
+  // and its lines, its customer (through the opportunity), the buyer
+  // registration (only if it is that customer's) and the issuer (the seller
+  // registration and the company document profile).
+  async documentData(id: string): Promise<QuotationDocumentData> {
+    const q = await this.prisma.quotation.findUnique({
+      where: { id },
+      include: {
+        lines: { orderBy: QUOTATION_LINES_ORDER },
+        opportunity: { select: { customerId: true } },
+      },
+    });
+    if (!q) throw new NotFoundException(QUOTATION_NOT_FOUND_MESSAGE);
+
+    const customer = q.opportunity?.customerId
+      ? await this.prisma.customer.findUnique({
+          where: { id: q.opportunity.customerId },
+          select: { id: true, customerName: true, customerCode: true },
+        })
+      : null;
+    const buyer = q.buyerGstId
+      ? await this.prisma.customerGSTRegistration.findUnique({
+          where: { id: q.buyerGstId },
+        })
+      : null;
+
+    return {
+      quotation: q,
+      lines: q.lines,
+      customer,
+      buyer:
+        buyer && (!customer || buyer.customerId === customer.id) ? buyer : null,
+      issuer: await loadDocumentIssuer(this.prisma, q.sellerGstId),
+      generatedAt: new Date(),
+    };
   }
 
   // Lifecycle history of one Quotation, newest first.

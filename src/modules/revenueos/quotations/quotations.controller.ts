@@ -4,11 +4,15 @@ import {
   Get,
   GoneException,
   Param,
+  ParseUUIDPipe,
   Patch,
   Post,
   Req,
+  Res,
+  StreamableFile,
   UseGuards,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import { QuotationsService } from './quotations.service';
 import { CreateQuotationDto } from './dto/create-quotation.dto';
 import { ReviseQuotationDto } from './dto/revise-quotation.dto';
@@ -18,6 +22,10 @@ import { RejectQuotationDto } from './dto/reject-quotation.dto';
 import { JwtAuthGuard } from '../../../core/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../../core/guards/permissions.guard';
 import { Permissions } from '../../../core/decorators/permissions.decorator';
+import { renderDocumentPdf } from '../../../core/documents/document-renderer';
+import { pdfAttachment } from '../../../core/documents/document-response';
+import { safeFileName } from '../../../core/documents/document-text';
+import { quotationDocument } from './quotation-document';
 
 type AuthenticatedRequest = { user?: { id?: string } };
 
@@ -36,6 +44,25 @@ export class QuotationsController {
   @Permissions('quotations.view')
   findAll() {
     return this.quotationsService.findAll();
+  }
+
+  // The quotation as a PDF, built in memory (quotations.view).
+  @Get(':id/document.pdf')
+  @Permissions('quotations.view')
+  async document(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<StreamableFile> {
+    const data = await this.quotationsService.documentData(id);
+    const pdf = await renderDocumentPdf(quotationDocument(data));
+    return pdfAttachment(
+      res,
+      pdf,
+      safeFileName(
+        ['quotation', data.quotation.quotationCode ?? id.slice(0, 8)],
+        'pdf',
+      ),
+    );
   }
 
   @Get(':id/events')

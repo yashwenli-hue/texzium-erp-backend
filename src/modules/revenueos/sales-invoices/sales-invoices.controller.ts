@@ -1,10 +1,25 @@
-import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  ParseUUIDPipe,
+  Post,
+  Res,
+  StreamableFile,
+  UseGuards,
+} from '@nestjs/common';
+import type { Response } from 'express';
 
 import { JwtAuthGuard } from '../../../core/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../../core/guards/permissions.guard';
 import { Permissions } from '../../../core/decorators/permissions.decorator';
 import { SalesInvoicesService } from './sales-invoices.service';
 import { CreateSalesInvoiceDto } from './dto/create-sales-invoice.dto';
+import { renderDocumentPdf } from '../../../core/documents/document-renderer';
+import { pdfAttachment } from '../../../core/documents/document-response';
+import { safeFileName } from '../../../core/documents/document-text';
+import { invoiceDocument } from './invoice-document';
 
 // Issuing an invoice needs invoices.create; reading invoices needs
 // invoices.view (both were open to any signed-in user before).
@@ -23,5 +38,22 @@ export class SalesInvoicesController {
   @Permissions('invoices.view')
   findAll() {
     return this.salesInvoicesService.findAll();
+  }
+
+  // The tax invoice as a PDF, built in memory (invoices.view). Refused (409)
+  // for an invoice that lacks what a tax invoice must carry.
+  @Get(':id/document.pdf')
+  @Permissions('invoices.view')
+  async document(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<StreamableFile> {
+    const data = await this.salesInvoicesService.documentData(id);
+    const pdf = await renderDocumentPdf(invoiceDocument(data));
+    return pdfAttachment(
+      res,
+      pdf,
+      safeFileName(['invoice', data.invoice.invoiceNumber ?? id], 'pdf'),
+    );
   }
 }
