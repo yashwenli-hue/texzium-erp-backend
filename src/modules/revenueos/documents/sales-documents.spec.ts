@@ -95,8 +95,10 @@ describe('sales document routes', () => {
     expect(perm(ProformaInvoicesController.prototype, 'document')).toEqual([
       'proformas.view',
     ]);
+    // the tax invoice also needs invoices.document.view, granted to nobody yet
     expect(perm(SalesInvoicesController.prototype, 'document')).toEqual([
       'invoices.view',
+      'invoices.document.view',
     ]);
     expect(perm(ReceiptVouchersController.prototype, 'document')).toEqual([
       'collections.view',

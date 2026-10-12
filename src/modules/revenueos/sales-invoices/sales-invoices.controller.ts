@@ -40,10 +40,14 @@ export class SalesInvoicesController {
     return this.salesInvoicesService.findAll();
   }
 
-  // The tax invoice as a PDF, built in memory (invoices.view). Refused (409)
-  // for an invoice that lacks what a tax invoice must carry.
+  // The tax invoice as a PDF, built in memory. Needs invoices.view AND
+  // invoices.document.view: the second is created but granted to no role
+  // until the accountant confirms e-invoicing applicability, so the tax
+  // invoice cannot be printed before then (see
+  // 20261016_tax_invoice_document_permission.sql). Refused (409) for an
+  // invoice that lacks what a tax invoice must carry.
   @Get(':id/document.pdf')
-  @Permissions('invoices.view')
+  @Permissions('invoices.view', 'invoices.document.view')
   async document(
     @Param('id', new ParseUUIDPipe()) id: string,
     @Res({ passthrough: true }) res: Response,
