@@ -246,6 +246,11 @@ describe('signed content access', () => {
     ).toBeNull();
     const flipped = (q.sig[0] === 'A' ? 'B' : 'A') + q.sig.slice(1);
     expect(verifyContentAccess(FILE, { ...q, sig: flipped }, now)).toBeNull();
+    // every character counts, not only a prefix
+    const lastFlipped = q.sig.slice(0, -1) + (q.sig.endsWith('A') ? 'B' : 'A');
+    expect(
+      verifyContentAccess(FILE, { ...q, sig: lastFlipped }, now),
+    ).toBeNull();
     expect(verifyContentAccess(FILE, {}, now)).toBeNull();
     expect(verifyContentAccess(FILE, { ...q, sig: [q.sig] }, now)).toBeNull();
   });
