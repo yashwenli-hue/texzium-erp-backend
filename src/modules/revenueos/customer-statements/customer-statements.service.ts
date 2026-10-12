@@ -8,6 +8,7 @@ import {
 import { PrismaService } from '../../../core/database/prisma.service';
 import { CUSTOMER_NOT_FOUND_MESSAGE } from '../customer-master/customer-lifecycle';
 import { findLegacyMatches } from '../customer-master/customer-legacy-matches';
+import { loadDocumentIssuer } from '../../adminos/document-profile/document-identity';
 import { StatementQueryDto } from './dto/statement-query.dto';
 import {
   beforePeriod,
@@ -51,6 +52,12 @@ export interface CustomerStatement extends StatementFigures {
 @Injectable()
 export class CustomerStatementsService {
   constructor(private prisma: PrismaService) {}
+
+  // The company that issues the statement: its default GST registration and
+  // its document profile.
+  documentIssuer() {
+    return loadDocumentIssuer(this.prisma, null);
+  }
 
   async statement(
     customerId: string,

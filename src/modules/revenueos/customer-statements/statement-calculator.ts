@@ -2,6 +2,11 @@ import {
   fromPaise,
   toPaise,
 } from '../payment-collections/payment-collection-values';
+import {
+  istCalendarDay,
+  istDayStart,
+  istNextDayStart,
+} from '../../../core/dates/ist';
 
 // A customer ledger statement, derived from CustomerLedger debit and credit amounts.
 //
@@ -45,23 +50,22 @@ export interface StatementFigures {
   entries: StatementEntry[];
 }
 
-// Ledger dates are calendar days stored at midnight UTC; a day is read in UTC.
-export const calendarDay = (date: Date) => date.toISOString().slice(0, 10);
+// Statement days are Indian calendar days (IST). A ledger date stored as
+// midnight UTC of a day (how date-only values are stored) is that same day in
+// India; a clock timestamp gets its Indian day.
+export const calendarDay = (date: Date) => istCalendarDay(date);
 
-const startOfDay = (day: string) => new Date(`${day}T00:00:00.000Z`);
-const startOfNextDay = (day: string) =>
-  new Date(startOfDay(day).getTime() + 24 * 60 * 60 * 1000);
-
-// The period as entryDate bounds: from its first day (inclusive) to the day after its
-// last day (exclusive), so both ends are whole days.
+// The period as entryDate bounds: from 00:00 IST on its first day (inclusive)
+// to 00:00 IST on the day after its last day (exclusive), so both ends are
+// whole Indian days.
 export function periodBounds(from: string | null, to: string | null) {
   return {
-    ...(from ? { gte: startOfDay(from) } : {}),
-    ...(to ? { lt: startOfNextDay(to) } : {}),
+    ...(from ? { gte: istDayStart(from) } : {}),
+    ...(to ? { lt: istNextDayStart(to) } : {}),
   };
 }
 
-export const beforePeriod = (from: string) => ({ lt: startOfDay(from) });
+export const beforePeriod = (from: string) => ({ lt: istDayStart(from) });
 
 // Debits minus credits, in paise.
 export function netPaise(

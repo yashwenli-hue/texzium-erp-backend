@@ -11,6 +11,7 @@ import { PERMISSIONS_KEY } from '../../../core/decorators/permissions.decorator'
 import { CustomerStatementsController } from './customer-statements.controller';
 import { CustomerStatementsModule } from './customer-statements.module';
 import { STATEMENT_TOO_LONG_MESSAGE } from './customer-statements.service';
+import { istCalendarDay } from '../../../core/dates/ist';
 
 // GET /customers/:id/statement through real HTTP: the real global JwtAuthGuard and JWT
 // strategy, the credential-redaction interceptor, PermissionsGuard, ValidationPipe and
@@ -208,6 +209,30 @@ function token(permissions: string[]) {
 describe('GET /customers/:id/statement', () => {
   let app: INestApplication;
   const db: any = {
+    // the issuer of the PDF (read only)
+    companyGSTRegistration: {
+      findFirst: jest.fn(async () => ({
+        id: 'reg-24',
+        companyId: 'co-1',
+        gstin: '24AAACT1234A1Z5',
+        legalName: 'Texzium Industries Private Limited',
+        tradeName: null,
+        addressLine1: 'Plot 7, GIDC',
+        addressLine2: null,
+        city: 'Ahmedabad',
+        pincode: '382445',
+        stateCode: '24',
+        stateName: 'Gujarat',
+      })),
+    },
+    company: {
+      findUnique: jest.fn(async () => ({
+        id: 'co-1',
+        companyName: 'Texzium Industries Private Limited',
+        panNumber: 'AAACT1234A',
+      })),
+    },
+    companyDocumentProfile: { findUnique: jest.fn(async () => null) },
     customer: {
       findUnique: jest.fn(async ({ where, select }: any) =>
         customers[where.id] ? pick(customers[where.id], select) : null,
@@ -565,7 +590,7 @@ describe('GET /customers/:id/statement', () => {
     it('names an all-time statement after today', async () => {
       const res = await pdf(`/customers/${B}/statement.pdf`);
       expect(res.headers['content-disposition']).toBe(
-        `attachment; filename="statement-CUST-B-all-${new Date().toISOString().slice(0, 10)}.pdf"`,
+        `attachment; filename="statement-CUST-B-all-${istCalendarDay(new Date())}.pdf"`,
       );
     });
 

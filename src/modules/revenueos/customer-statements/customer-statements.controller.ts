@@ -14,6 +14,7 @@ import { CustomerStatementsService } from './customer-statements.service';
 import { StatementQueryDto } from './dto/statement-query.dto';
 import { calendarDay } from './statement-calculator';
 import { renderStatementPdf } from './statement-pdf.renderer';
+import { pdfAttachment } from '../../../core/documents/document-response';
 
 import { JwtAuthGuard } from '../../../core/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../../core/guards/permissions.guard';
@@ -45,7 +46,8 @@ export class CustomerStatementsController {
     @Res({ passthrough: true }) res: Response,
   ): Promise<StreamableFile> {
     const statement = await this.customerStatementsService.statement(id, query);
-    const pdf = await renderStatementPdf(statement);
+    const issuer = await this.customerStatementsService.documentIssuer();
+    const pdf = await renderStatementPdf(statement, issuer);
     const name = [
       'statement',
       statement.customer.customerCode,
@@ -55,13 +57,6 @@ export class CustomerStatementsController {
       .join('-')
       .replace(/[^A-Za-z0-9._-]/g, '_');
 
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('Cache-Control', 'private, no-store');
-
-    return new StreamableFile(pdf, {
-      type: 'application/pdf',
-      length: pdf.length,
-      disposition: `attachment; filename="${name}.pdf"`,
-    });
+    return pdfAttachment(res, pdf, `${name}.pdf`);
   }
 }

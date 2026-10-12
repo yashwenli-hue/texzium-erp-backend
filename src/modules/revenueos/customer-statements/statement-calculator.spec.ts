@@ -118,20 +118,23 @@ describe('statement calculator', () => {
     });
   });
 
-  describe('period bounds (whole calendar days, both ends inclusive)', () => {
+  describe('period bounds (whole Indian calendar days, both ends inclusive)', () => {
     const d = (iso: string) => new Date(iso);
 
     it('all time when neither end is given', () => {
       expect(periodBounds(null, null)).toEqual({});
     });
 
-    it('includes the first day from midnight and the last day until its last millisecond', () => {
+    it('includes the first day from 00:00 IST and the last day until 23:59:59.999 IST', () => {
       const b = periodBounds('2026-04-15', '2026-05-01');
-      expect(inBounds(d('2026-04-14T23:59:59.999Z'), b)).toBe(false);
+      // 00:00 IST on 15 April is 18:30 UTC on 14 April
+      expect(inBounds(d('2026-04-14T18:29:59.999Z'), b)).toBe(false);
+      expect(inBounds(d('2026-04-14T18:30:00.000Z'), b)).toBe(true);
+      // date-only values stored at midnight UTC are inside their own day
       expect(inBounds(d('2026-04-15T00:00:00.000Z'), b)).toBe(true);
       expect(inBounds(d('2026-05-01T00:00:00.000Z'), b)).toBe(true);
-      expect(inBounds(d('2026-05-01T23:59:59.999Z'), b)).toBe(true);
-      expect(inBounds(d('2026-05-02T00:00:00.000Z'), b)).toBe(false);
+      expect(inBounds(d('2026-05-01T18:29:59.999Z'), b)).toBe(true);
+      expect(inBounds(d('2026-05-01T18:30:00.000Z'), b)).toBe(false);
     });
 
     it('a single day is one whole day', () => {
@@ -157,13 +160,14 @@ describe('statement calculator', () => {
 
     it('crosses month and year ends and leap days correctly', () => {
       expect(periodBounds('2024-02-29', '2024-12-31')).toEqual({
-        gte: d('2024-02-29T00:00:00.000Z'),
-        lt: d('2025-01-01T00:00:00.000Z'),
+        gte: d('2024-02-28T18:30:00.000Z'),
+        lt: d('2024-12-31T18:30:00.000Z'),
       });
     });
 
-    it('reads a stored date as its UTC calendar day', () => {
+    it('reads a stored date as its Indian calendar day', () => {
       expect(calendarDay(d('2026-04-15T00:00:00.000Z'))).toBe('2026-04-15');
+      expect(calendarDay(d('2026-04-15T18:30:00.000Z'))).toBe('2026-04-16');
     });
   });
 });
