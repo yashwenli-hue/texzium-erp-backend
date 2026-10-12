@@ -1665,6 +1665,86 @@ model Company {
 // One per company; changed only by someone with documents.profile.manage. The
 // logo is a PNG or JPEG of at most 64 KB, stored in the row (nothing is
 // written to disk).
+// Sales enablement content library (manual migration 20261018_content_library.sql).
+// One library for product catalogues (PDF), machine photos (JPEG, PNG, WebP) and
+// machine videos (MP4). An asset's files are immutable versions; the highest version is
+// the current one. Files live outside the database, under the content storage
+// directory, by a server-generated storageKey. User, inventory, lead, opportunity and
+// customer references are foreign keys in the database (no Prisma relation fields, so
+// those models are unchanged).
+model ContentAsset {
+  id              String    @id @default(uuid())
+  title           String
+  description     String?
+  kind            String // CATALOGUE | PHOTO | VIDEO
+  tags            String[]  @default([])
+  inventoryItemId String?
+  status          String    @default("ACTIVE") // ACTIVE | ARCHIVED
+  archivedAt      DateTime?
+  archivedById    String?
+  archiveReason   String?
+  createdById     String?
+  updatedById     String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  files  ContentFile[]
+  shares ContentShare[]
+
+  @@index([status, kind])
+  @@index([inventoryItemId])
+}
+
+model ContentFile {
+  id              String   @id @default(uuid())
+  assetId         String
+  version         Int
+  storageKey      String   @unique
+  originalName    String
+  mimeType        String
+  sizeBytes       Int
+  sha256          String
+  width           Int?
+  height          Int?
+  metadataRemoved String[] @default([])
+  uploadedById    String?
+  createdAt       DateTime @default(now())
+
+  asset  ContentAsset   @relation(fields: [assetId], references: [id])
+  shares ContentShare[]
+
+  @@unique([assetId, version])
+}
+
+// A content version shared with a lead, an opportunity or a customer. The share is
+// recorded with the exact version, and in the same transaction as the lead timeline
+// and/or customer event. leadId is also set for an opportunity share (its lead), so a
+// shared lead can never be deleted.
+model ContentShare {
+  id             String   @id @default(uuid())
+  assetId        String
+  fileId         String
+  version        Int
+  targetType     String // LEAD | OPPORTUNITY | CUSTOMER
+  leadId         String?
+  opportunityId  String?
+  customerId     String?
+  channel        String // WHATSAPP | DOWNLOAD
+  recipientName  String?
+  recipientPhone String?
+  message        String?
+  actorId        String?
+  createdAt      DateTime @default(now())
+
+  asset ContentAsset @relation(fields: [assetId], references: [id])
+  file  ContentFile  @relation(fields: [fileId], references: [id])
+
+  @@index([assetId, createdAt])
+  @@index([leadId])
+  @@index([opportunityId])
+  @@index([customerId])
+}
+
 model CompanyDocumentProfile {
   id                      String   @id @default(uuid())
   companyId               String   @unique
