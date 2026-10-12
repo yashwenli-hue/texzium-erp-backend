@@ -31,6 +31,7 @@ interface Facts {
   missing: boolean;
   updatedAt: string;
   name: string;
+  shares: number;
 }
 const quiet = (over: Partial<Facts> = {}): Facts => ({
   opportunities: 0,
@@ -48,6 +49,7 @@ const quiet = (over: Partial<Facts> = {}): Facts => ({
   missing: false,
   updatedAt: '2026-10-01T00:00:00.000Z',
   name: 'Sterling Pumps',
+  shares: 0,
   ...over,
 });
 
@@ -77,6 +79,12 @@ function dbFor(f: Facts) {
     dispatchOrder: { count: jest.fn(async () => f.dispatchById) },
     vendor: { count: jest.fn(async () => f.vendors) },
     customerEvent: { count: jest.fn(async () => f.events) },
+    contentShare: {
+      count: jest.fn(async (args: any) => {
+        expect(args.where).toEqual({ customerId: 'C1' });
+        return f.shares;
+      }),
+    },
     $queryRaw: jest.fn(async (_s: any, ...values: any[]) => {
       names.push(
         values.flatMap((v) => (v && Array.isArray(v.values) ? v.values : [v])),
@@ -190,6 +198,12 @@ describe('customer deletion: what blocks it', () => {
       CUSTOMER_BLOCKER.NAME_IN_FINANCIAL_RECORDS,
       '1 invoice, ledger entry or dispatch order carries its name.',
     ],
+    [
+      'content shared with it',
+      { shares: 2 },
+      CUSTOMER_BLOCKER.CONTENT_SHARED,
+      'Sales content was shared with it 2 times.',
+    ],
   ])(
     '%s blocks, alone, with its own code and words',
     async (_n, over, code, message) => {
@@ -249,6 +263,7 @@ describe('customer deletion: what blocks it', () => {
       dispatchOrders: 1,
       vendorLink: true,
       nameKeyed: 1,
+      contentShares: 1,
     });
     expect(all.map((b) => b.code).sort()).toEqual(
       [...CUSTOMER_DELETION_POLICY.blockerCodes].sort(),
@@ -285,6 +300,7 @@ describe('customer deletion: what blocks it', () => {
       { events: 3 },
       { invoices: 1 },
       { isVendor: true },
+      { shares: 1 },
       { updatedAt: '2026-10-02T00:00:00.000Z' },
     ]) {
       expect(

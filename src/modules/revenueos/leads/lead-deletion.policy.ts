@@ -41,6 +41,7 @@ export const LEAD_BLOCKER = {
   QUALIFIED_OR_REJECTED: 'LEAD_QUALIFIED_OR_REJECTED',
   COMPLETED_FOLLOWUPS: 'LEAD_HAS_COMPLETED_FOLLOWUPS',
   PENDING_FOLLOWUPS: 'LEAD_HAS_PENDING_FOLLOWUPS',
+  CONTENT_SHARED: 'LEAD_HAS_CONTENT_SHARES',
 } as const;
 
 export const LEAD_DECISION_ACTIONS = ['LEAD_QUALIFIED', 'LEAD_REJECTED'];
@@ -145,6 +146,7 @@ export function leadBlockers(counts: {
   decisions: number;
   completedFollowups: number;
   pendingFollowups: number;
+  contentShares?: number;
 }): DeletionBlocker[] {
   const blockers: DeletionBlocker[] = [];
 
@@ -193,6 +195,16 @@ export function leadBlockers(counts: {
     });
   }
 
+  const shares = counts.contentShares ?? 0;
+  if (shares > 0) {
+    blockers.push({
+      code: LEAD_BLOCKER.CONTENT_SHARED,
+      count: shares,
+      message: `Sales content was shared with it ${shares} ${plural(shares, 'time', 'times')}.`,
+      hint: 'Content shared with a lead is customer contact and is kept.',
+    });
+  }
+
   return blockers;
 }
 
@@ -224,6 +236,7 @@ async function evaluate(
     cancelledFollowups,
     timelineEvents,
     notes,
+    contentShares,
   ] = await Promise.all([
     db.opportunity.count({ where: { leadId: id } }),
     db.leadTimeline.count({
@@ -243,6 +256,7 @@ async function evaluate(
     }),
     db.leadTimeline.count({ where: { leadId: id } }),
     db.leadNote.count({ where: { leadId: id } }),
+    db.contentShare.count({ where: { leadId: id } }),
   ]);
 
   const removes: DeletionLine[] = [
@@ -261,6 +275,7 @@ async function evaluate(
       decisions,
       completedFollowups,
       pendingFollowups,
+      contentShares,
     }),
     removes,
     version: versionOf({
@@ -274,6 +289,7 @@ async function evaluate(
       cancelledFollowups,
       timelineEvents,
       notes,
+      contentShares,
     }),
   };
 }

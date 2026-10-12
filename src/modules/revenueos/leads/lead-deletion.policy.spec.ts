@@ -23,6 +23,7 @@ interface Facts {
   updatedAt: string;
   isActive: boolean;
   missing: boolean;
+  shares: number;
 }
 
 const quiet = (over: Partial<Facts> = {}): Facts => ({
@@ -34,6 +35,7 @@ const quiet = (over: Partial<Facts> = {}): Facts => ({
   cancelled: 0,
   timeline: 1,
   notes: 0,
+  shares: 0,
   updatedAt: '2026-10-01T10:00:00.000Z',
   isActive: true,
   missing: false,
@@ -78,6 +80,12 @@ function dbFor(f: Facts) {
         }),
       },
       leadNote: { count: jest.fn(async () => f.notes) },
+      contentShare: {
+        count: jest.fn(async (args: any) => {
+          wheres.push({ contentShare: args.where });
+          return f.shares;
+        }),
+      },
     } as any,
   };
 }
@@ -147,6 +155,18 @@ describe('lead deletion: what blocks it', () => {
       LEAD_BLOCKER.PENDING_FOLLOWUPS,
       'It has 2 pending follow-ups.',
     ],
+    [
+      'content shared once',
+      { shares: 1 },
+      LEAD_BLOCKER.CONTENT_SHARED,
+      'Sales content was shared with it 1 time.',
+    ],
+    [
+      'content shared several times',
+      { shares: 3 },
+      LEAD_BLOCKER.CONTENT_SHARED,
+      'Sales content was shared with it 3 times.',
+    ],
   ])(
     '%s blocks, alone, with its own code, count and words',
     async (_name, over, code, message) => {
@@ -167,6 +187,7 @@ describe('lead deletion: what blocks it', () => {
         decisions: 1,
         completed: 1,
         pending: 1,
+        shares: 1,
       }),
     );
     expect(result?.blockers.map((b) => b.code)).toEqual([
@@ -175,6 +196,7 @@ describe('lead deletion: what blocks it', () => {
       LEAD_BLOCKER.QUALIFIED_OR_REJECTED,
       LEAD_BLOCKER.COMPLETED_FOLLOWUPS,
       LEAD_BLOCKER.PENDING_FOLLOWUPS,
+      LEAD_BLOCKER.CONTENT_SHARED,
     ]);
   });
 
@@ -187,6 +209,7 @@ describe('lead deletion: what blocks it', () => {
       leadId: 'L1',
       action: { in: ['LEAD_QUALIFIED', 'LEAD_REJECTED'] },
     });
+    expect(wheres).toContainEqual({ contentShare: { leadId: 'L1' } });
   });
 
   it('is null for a lead that does not exist', async () => {
@@ -200,6 +223,7 @@ describe('lead deletion: what blocks it', () => {
       decisions: 1,
       completedFollowups: 1,
       pendingFollowups: 1,
+      contentShares: 1,
     });
     expect(all.map((b) => b.code).sort()).toEqual(
       [...LEAD_DELETION_POLICY.blockerCodes].sort(),
@@ -240,6 +264,7 @@ describe('lead deletion: what it removes, and the token', () => {
       { cancelled: 1 },
       { timeline: 2 },
       { notes: 1 },
+      { shares: 1 },
       { isActive: false },
       { updatedAt: '2026-10-01T10:00:01.000Z' },
     ];

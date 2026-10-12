@@ -50,6 +50,7 @@ export const CUSTOMER_BLOCKER = {
   DISPATCH_ORDERS: 'CUSTOMER_HAS_DISPATCH_ORDERS',
   VENDOR_LINK: 'CUSTOMER_VENDOR_LINK',
   NAME_IN_FINANCIAL_RECORDS: 'CUSTOMER_NAME_IN_FINANCIAL_RECORDS',
+  CONTENT_SHARED: 'CUSTOMER_HAS_CONTENT_SHARES',
 } as const;
 
 export const CUSTOMER_RESTORE_CONFLICT = {
@@ -85,6 +86,7 @@ export function customerBlockers(counts: {
   dispatchOrders: number;
   vendorLink: boolean;
   nameKeyed: number;
+  contentShares?: number;
 }): DeletionBlocker[] {
   const blockers: DeletionBlocker[] = [];
 
@@ -130,6 +132,16 @@ export function customerBlockers(counts: {
       count: counts.nameKeyed,
       message: `${counts.nameKeyed} ${plural(counts.nameKeyed, 'invoice, ledger entry or dispatch order carries', 'invoices, ledger entries or dispatch orders carry')} its name.`,
       hint: 'Financial records are never deleted, and they refer to a customer by name only, so a customer whose name is on one is kept.',
+    });
+  }
+
+  const shares = counts.contentShares ?? 0;
+  if (shares > 0) {
+    blockers.push({
+      code: CUSTOMER_BLOCKER.CONTENT_SHARED,
+      count: shares,
+      message: `Sales content was shared with it ${shares} ${plural(shares, 'time', 'times')}.`,
+      hint: 'Content shared with a customer is customer contact and is kept.',
     });
   }
 
@@ -254,6 +266,7 @@ async function evaluate(
     vendorsLinked,
     events,
     nameRows,
+    contentShares,
   ] = await Promise.all([
     db.opportunity.count({ where: { customerId: id } }),
     registrationIds.length
@@ -277,6 +290,7 @@ async function evaluate(
           WHERE "customerName" IS NOT NULL
             AND lower(regexp_replace(btrim("customerName"), '[[:space:]]+', ' ', 'g')) IN (${Prisma.join(names)}))::int AS "dispatch"
     `,
+    db.contentShare.count({ where: { customerId: id } }),
   ]);
 
   const nameKeyed =
@@ -305,6 +319,7 @@ async function evaluate(
       dispatchOrders,
       vendorLink,
       nameKeyed,
+      contentShares,
     }),
     removes,
     version: versionOf({
@@ -318,6 +333,7 @@ async function evaluate(
       dispatchOrders,
       vendorLink,
       nameKeyed,
+      contentShares,
     }),
   };
 }
