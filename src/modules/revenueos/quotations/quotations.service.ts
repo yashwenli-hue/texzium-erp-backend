@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -34,6 +35,20 @@ import {
   badRequestBuyerGstNotCustomers,
   conflictRegistrationInactive,
 } from '../customer-gst/customer-gst-lifecycle';
+import { TAX_TYPE } from '../tax/gst-split';
+import { buildQuotationLine } from './quotation-lines';
+import { QUOTATION_MAX_TAXABLE_AMOUNT } from './quotation-values';
+import {
+  DOCUMENT_NUMBER_TYPE,
+  allocateDocumentNumber,
+} from '../../adminos/document-number-series/document-numbering';
+
+export const QUOTATION_LINES_ORDER = { lineNumber: 'asc' } as const;
+
+const badRequestTooLarge = () =>
+  new BadRequestException(
+    `The taxable amount must not exceed ${QUOTATION_MAX_TAXABLE_AMOUNT}.`,
+  );
 
 @Injectable()
 export class QuotationsService {
@@ -115,42 +130,68 @@ export class QuotationsService {
         throw conflictRegistrationInactive('buyer');
       }
 
-      // 5. Tax type
-      let taxType = '';
-      let gstAmount = 0;
-
-      const taxableAmount = data.quantity * data.unitPrice;
+      // 5. Tax type, and the line: the backend works out every amount
+      // (taxable to the paisa, GST at the item's HSN rate, its split) and the
+      // quotation's amounts are its line's.
+      const taxType =
+        sellerGst.stateCode === buyerGst.stateCode
+          ? TAX_TYPE.CGST_SGST
+          : TAX_TYPE.IGST;
       const gstRate = inventory.hsnMaster.gstRate;
 
-      if (sellerGst.stateCode === buyerGst.stateCode) {
-        taxType = 'CGST_SGST';
-        gstAmount = (taxableAmount * gstRate) / 100;
-      } else {
-        taxType = 'IGST';
-        gstAmount = (taxableAmount * gstRate) / 100;
+      const line = buildQuotationLine({
+        lineNumber: 1,
+        inventoryItemId: inventory.id,
+        description: inventory.productName,
+        hsnCode: inventory.hsnMaster.hsnCode,
+        quantity: data.quantity,
+        unitRate: data.unitPrice,
+        gstRate,
+        taxType,
+      });
+
+      if (line.taxableAmount > QUOTATION_MAX_TAXABLE_AMOUNT) {
+        throw badRequestTooLarge();
       }
 
-      const totalAmount = taxableAmount + gstAmount;
+      // 6. The next number of the seller registration's quotation series
+      const quoteDate = new Date(data.quoteDate);
+      const { number } = await allocateDocumentNumber(
+        tx,
+        DOCUMENT_NUMBER_TYPE.QUOTATION,
+        {
+          kind: 'registration',
+          gstRegistrationId: sellerGst.id,
+          stateCode: sellerGst.stateCode,
+        },
+        quoteDate,
+      );
 
-      // 6. Create Quotation, with the event that starts its history
-      const quotation = await tx.quotation.create({
+      // 7. Create Quotation and its line, with the event that starts its history
+      const created = await tx.quotation.create({
         data: {
+          quotationCode: number,
           opportunityId: data.opportunityId,
-          quoteDate: new Date(data.quoteDate),
+          quoteDate,
 
           sellerGstId: data.sellerGstId,
           buyerGstId: data.buyerGstId,
           placeOfSupply: buyerGst.stateName,
           taxType: taxType,
 
-          taxableAmount: taxableAmount,
+          taxableAmount: line.taxableAmount,
           gstPercent: gstRate,
-          gstAmount: gstAmount,
-          totalAmount: totalAmount,
+          gstAmount: line.gstAmount,
+          totalAmount: line.totalAmount,
 
           status: QUOTATION_STATUS.DRAFT,
         },
       });
+
+      const createdLine = await tx.quotationLine.create({
+        data: { quotationId: created.id, ...line },
+      });
+      const quotation = { ...created, lines: [createdLine] };
 
       await recordQuotationEvent(tx, {
         quotationId: quotation.id,
@@ -170,6 +211,7 @@ export class QuotationsService {
     return this.prisma.quotation.findMany({
       include: {
         opportunity: true,
+        lines: { orderBy: QUOTATION_LINES_ORDER },
       },
     });
   }
@@ -188,9 +230,12 @@ export class QuotationsService {
     });
   }
 
-  // Revises the taxable amount. GST comes from the percentage the quotation
-  // already carries and the total is their sum; the request cannot supply
-  // either. The quotation goes (back) to REVISED and needs approval again. An
+  // Revises the price. A quotation with a line is revised by its unit rate:
+  // the line's taxable amount is quantity x the new rate, GST comes from the
+  // percentage the quotation already carries, and the quotation's amounts are
+  // the line's. A quotation stored before lines existed has no quantity, so it
+  // is revised by its taxable amount as before. The request never supplies GST
+  // or a total. The quotation goes (back) to REVISED and needs approval again. An
   // APPROVED quotation can be revised only while no Proforma Invoice is active
   // against it and no Sales Order that is not cancelled was created from it.
   // The row is locked for the whole transaction, so that check and the status
@@ -225,16 +270,72 @@ export class QuotationsService {
         await assertNoActiveDownstreamDocuments(tx, id);
       }
 
-      const amounts = computeQuotationAmounts(
-        data.taxableAmount,
-        current.gstPercent,
-      );
+      const lines = await tx.quotationLine.findMany({
+        where: { quotationId: id },
+        orderBy: QUOTATION_LINES_ORDER,
+      });
+
+      let amounts: ReturnType<typeof computeQuotationAmounts>;
+      let revisedLine: ReturnType<typeof buildQuotationLine> | null = null;
+
+      if (lines.length > 0) {
+        if (data.unitPrice == null || data.taxableAmount != null) {
+          throw new BadRequestException(
+            'This quotation has a priced line: revise its unit rate (unitPrice), not the taxable amount.',
+          );
+        }
+        if (lines.length !== 1) {
+          throw new ConflictException(
+            'This quotation has more than one line; it cannot be revised with a single unit rate.',
+          );
+        }
+        revisedLine = buildQuotationLine({
+          ...lines[0],
+          unitRate: data.unitPrice,
+          gstRate: current.gstPercent,
+          taxType: current.taxType ?? '',
+        });
+        amounts = {
+          taxableAmount: revisedLine.taxableAmount,
+          gstAmount: revisedLine.gstAmount,
+          totalAmount: revisedLine.totalAmount,
+        };
+      } else {
+        if (data.taxableAmount == null || data.unitPrice != null) {
+          throw new BadRequestException(
+            'This quotation has no priced line: revise its taxable amount (taxableAmount).',
+          );
+        }
+        amounts = computeQuotationAmounts(
+          data.taxableAmount,
+          current.gstPercent,
+        );
+      }
+
+      if (amounts.taxableAmount > QUOTATION_MAX_TAXABLE_AMOUNT) {
+        throw badRequestTooLarge();
+      }
 
       const moved = await setQuotationStatusIfStill(tx, id, from, to, amounts);
 
       if (!moved) {
         const latest = await tx.quotation.findUniqueOrThrow({ where: { id } });
         throw conflictCannotRevise(latest.status);
+      }
+
+      if (revisedLine) {
+        await tx.quotationLine.update({
+          where: { id: lines[0].id },
+          data: {
+            unitRate: revisedLine.unitRate,
+            taxableAmount: revisedLine.taxableAmount,
+            cgstAmount: revisedLine.cgstAmount,
+            sgstAmount: revisedLine.sgstAmount,
+            igstAmount: revisedLine.igstAmount,
+            gstAmount: revisedLine.gstAmount,
+            totalAmount: revisedLine.totalAmount,
+          },
+        });
       }
 
       await recordQuotationEvent(tx, {
@@ -251,7 +352,10 @@ export class QuotationsService {
         occurredAt: now,
       });
 
-      return tx.quotation.findUniqueOrThrow({ where: { id } });
+      return tx.quotation.findUniqueOrThrow({
+        where: { id },
+        include: { lines: { orderBy: QUOTATION_LINES_ORDER } },
+      });
     });
   }
 

@@ -202,6 +202,7 @@ type Row = Record<string, any>;
 function makeDb() {
   const state: {
     quotations: Row[];
+    lines: Row[];
     events: Row[];
     proformas: Row[];
     orders: Row[];
@@ -210,6 +211,7 @@ function makeDb() {
     eventFailure: boolean;
   } = {
     quotations: [],
+    lines: [],
     events: [],
     proformas: [],
     orders: [],
@@ -241,6 +243,7 @@ function makeDb() {
     $transaction: async (fn: (tx: any) => Promise<any>) => {
       const snapshot = JSON.stringify({
         q: state.quotations,
+        l: state.lines,
         e: state.events,
       });
       try {
@@ -248,6 +251,7 @@ function makeDb() {
       } catch (e) {
         const s = JSON.parse(snapshot);
         state.quotations = s.q;
+        state.lines = s.l;
         state.events = s.e;
         throw e;
       }
@@ -277,6 +281,18 @@ function makeDb() {
         );
         rows.forEach((r) => Object.assign(r, data));
         return { count: rows.length };
+      },
+    },
+    quotationLine: {
+      findMany: async ({ where }: any) =>
+        state.lines
+          .filter((l) => l.quotationId === where.quotationId)
+          .sort((a, b) => a.lineNumber - b.lineNumber)
+          .map((l) => ({ ...l })),
+      update: async ({ where, data }: any) => {
+        const row = state.lines.find((l) => l.id === where.id) as Row;
+        Object.assign(row, data);
+        return { ...row };
       },
     },
     quotationEvent: {
@@ -612,6 +628,106 @@ describe('Quotation lifecycle over HTTP', () => {
       ctx.state.quotations.push(quote());
       await http().patch(`/quotations/${QUOTE}/revise`).send(body).expect(400);
       expect(ctx.state.events).toHaveLength(0);
+    });
+
+    describe('a quotation with a priced line', () => {
+      const line = (over: Row = {}): Row => ({
+        id: 'line-1',
+        quotationId: QUOTE,
+        lineNumber: 1,
+        inventoryItemId: 'item-1',
+        description: 'Pump',
+        hsnCode: '84137090',
+        quantity: 10,
+        unitRate: 25000,
+        taxableAmount: 250000,
+        gstRate: 18,
+        cgstAmount: 0,
+        sgstAmount: 0,
+        igstAmount: 45000,
+        gstAmount: 45000,
+        totalAmount: 295000,
+        ...over,
+      });
+
+      it('is revised by its unit rate: the line and the quotation take quantity x rate, GST and its split', async () => {
+        ctx.state.quotations.push(quote({ taxType: 'IGST' }));
+        ctx.state.lines.push(line());
+
+        const res = await http()
+          .patch(`/quotations/${QUOTE}/revise`)
+          .send({ unitPrice: 12345.67 })
+          .expect(200);
+
+        // 10 x 12,345.67 = 1,23,456.70; GST 18% = 22,222.21 (rounded to the paisa)
+        expect(res.body).toMatchObject({
+          status: 'REVISED',
+          taxableAmount: 123456.7,
+          gstAmount: 22222.21,
+          totalAmount: 145678.91,
+        });
+        expect(ctx.state.lines[0]).toMatchObject({
+          quantity: 10,
+          unitRate: 12345.67,
+          taxableAmount: 123456.7,
+          igstAmount: 22222.21,
+          cgstAmount: 0,
+          sgstAmount: 0,
+          gstAmount: 22222.21,
+          totalAmount: 145678.91,
+        });
+        expect(ctx.state.events[0]).toMatchObject({
+          previousTaxableAmount: 250000,
+          newTaxableAmount: 123456.7,
+          newTotalAmount: 145678.91,
+        });
+      });
+
+      it('splits CGST and SGST so they add up to the GST exactly', async () => {
+        ctx.state.quotations.push(quote({ taxType: 'CGST_SGST' }));
+        ctx.state.lines.push(
+          line({ igstAmount: 0, cgstAmount: 22500, sgstAmount: 22500 }),
+        );
+        // 1 x 0.17 x 18% = 0.0306 -> GST 0.03: CGST 0.02 (half, rounded) + SGST 0.01
+        ctx.state.lines[0].quantity = 1;
+        await http()
+          .patch(`/quotations/${QUOTE}/revise`)
+          .send({ unitPrice: 0.17 })
+          .expect(200);
+        expect(ctx.state.lines[0]).toMatchObject({
+          taxableAmount: 0.17,
+          gstAmount: 0.03,
+          cgstAmount: 0.02,
+          sgstAmount: 0.01,
+          igstAmount: 0,
+        });
+      });
+
+      it.each([
+        ['a taxable amount instead of a unit rate', { taxableAmount: 1000 }],
+        ['both', { taxableAmount: 1000, unitPrice: 100 }],
+        ['neither', {}],
+      ])('refuses %s (400) and changes nothing', async (_n, body) => {
+        ctx.state.quotations.push(quote({ taxType: 'IGST' }));
+        ctx.state.lines.push(line());
+        await http()
+          .patch(`/quotations/${QUOTE}/revise`)
+          .send(body)
+          .expect(400);
+        expect(ctx.state.lines[0].unitRate).toBe(25000);
+        expect(ctx.state.quotations[0].taxableAmount).toBe(250000);
+        expect(ctx.state.events).toHaveLength(0);
+      });
+
+      it('a quotation without lines refuses a unit rate (it has no quantity)', async () => {
+        ctx.state.quotations.push(quote());
+        const res = await http()
+          .patch(`/quotations/${QUOTE}/revise`)
+          .send({ unitPrice: 100 })
+          .expect(400);
+        expect(res.body.message).toMatch(/revise its taxable amount/);
+        expect(ctx.state.events).toHaveLength(0);
+      });
     });
 
     it('revises an APPROVED quotation back to REVISED when nothing is built on it', async () => {

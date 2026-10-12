@@ -30,6 +30,8 @@ function makeDb() {
     sellers: Row[];
     buyers: Row[];
     quotations: Row[];
+    lines: Row[];
+    counters: Record<string, number>;
     events: Row[];
     locks: string[];
     eventFailure: boolean;
@@ -39,7 +41,13 @@ function makeDb() {
       { id: RAJ, isActive: true },
       { id: OTHER, isActive: true },
     ],
-    items: [{ id: ITEM, hsnMaster: { gstRate: 18 } }],
+    items: [
+      {
+        id: ITEM,
+        productName: 'Industrial pump',
+        hsnMaster: { gstRate: 18, hsnCode: '84137090' },
+      },
+    ],
     sellers: [{ id: SELLER, stateCode: '24', isActive: true }],
     buyers: [
       {
@@ -58,6 +66,8 @@ function makeDb() {
       },
     ],
     quotations: [],
+    lines: [],
+    counters: {},
     events: [],
     locks: [],
     eventFailure: false,
@@ -72,6 +82,11 @@ function makeDb() {
         const o = state.opportunities.find((x) => x.id === v[0]);
         return o ? [{ customerId: o.customerId }] : [];
       }
+      if (sql.includes('document-number:allocate')) {
+        const key = v.join('|');
+        state.counters[key] = (state.counters[key] ?? 0) + 1;
+        return [{ lastNumber: state.counters[key] }];
+      }
       if (sql.includes('customer:lock-shared')) {
         state.locks.push('customer');
         const c = state.customers.find((x) => x.id === v[0]);
@@ -82,6 +97,8 @@ function makeDb() {
     $transaction: async (fn: (tx: any) => Promise<any>) => {
       const snapshot = JSON.stringify({
         q: state.quotations,
+        l: state.lines,
+        c: state.counters,
         e: state.events,
       });
       try {
@@ -89,6 +106,8 @@ function makeDb() {
       } catch (e) {
         const s = JSON.parse(snapshot);
         state.quotations = s.q;
+        state.lines = s.l;
+        state.counters = s.c;
         state.events = s.e;
         throw e;
       }
@@ -117,6 +136,13 @@ function makeDb() {
           ...data,
         };
         state.quotations.push(row);
+        return { ...row };
+      },
+    },
+    quotationLine: {
+      create: async ({ data }: any) => {
+        const row = { id: `line-${state.lines.length + 1}`, ...data };
+        state.lines.push(row);
         return { ...row };
       },
     },
@@ -217,6 +243,65 @@ describe('Quotation creation over HTTP', () => {
     expect(res.body.taxType).toBe('CGST_SGST');
   });
 
+  it("is numbered from the seller registration's quotation series and stores its priced line", async () => {
+    const res = await create().expect(201);
+
+    expect(res.body.quotationCode).toBe('QT24/26-27/00001');
+    expect(res.body.lines).toHaveLength(1);
+    expect(ctx.state.lines[0]).toMatchObject({
+      quotationId: res.body.id,
+      lineNumber: 1,
+      inventoryItemId: ITEM,
+      description: 'Industrial pump',
+      hsnCode: '84137090',
+      quantity: 10,
+      unitRate: 1000,
+      taxableAmount: 10000,
+      gstRate: 18,
+      igstAmount: 1800,
+      cgstAmount: 0,
+      sgstAmount: 0,
+      gstAmount: 1800,
+      totalAmount: 11800,
+    });
+
+    const second = await create().expect(201);
+    expect(second.body.quotationCode).toBe('QT24/26-27/00002');
+  });
+
+  it('splits CGST and SGST on the line within the state, and rounds to the paisa', async () => {
+    ctx.state.buyers[0].stateCode = '24';
+    const res = await create({ quantity: 3, unitPrice: 33.33 }).expect(201);
+
+    // 3 x 33.33 = 99.99; GST 18% = 17.9982 -> 18.00; CGST 9.00 + SGST 9.00
+    expect(res.body).toMatchObject({
+      taxableAmount: 99.99,
+      gstAmount: 18,
+      totalAmount: 117.99,
+    });
+    expect(ctx.state.lines[0]).toMatchObject({
+      cgstAmount: 9,
+      sgstAmount: 9,
+      igstAmount: 0,
+    });
+  });
+
+  it.each([
+    ['a zero quantity', { quantity: 0 }],
+    ['a negative unit rate', { unitPrice: -1 }],
+    ['a unit rate with more than two decimals', { unitPrice: 10.123 }],
+    ['a quantity with more than three decimals', { quantity: 1.2345 }],
+    ['a date that is not a date', { quoteDate: 'tomorrow' }],
+  ])(
+    'refuses %s (400): nothing is created and no number is taken',
+    async (_n, over) => {
+      await create(over).expect(400);
+      expect(ctx.state.quotations).toHaveLength(0);
+      expect(ctx.state.lines).toHaveLength(0);
+      expect(ctx.state.counters).toEqual({});
+    },
+  );
+
   it('takes the opportunity first and then the customer, both in shared mode', async () => {
     await create().expect(201);
     expect(ctx.state.locks).toEqual(['opportunity', 'customer']);
@@ -290,5 +375,8 @@ describe('Quotation creation over HTTP', () => {
     ctx.state.eventFailure = true;
     await create().expect(500);
     expect(ctx.state.quotations).toHaveLength(0);
+    // its line and its number are given back with it
+    expect(ctx.state.lines).toHaveLength(0);
+    expect(ctx.state.counters).toEqual({});
   });
 });

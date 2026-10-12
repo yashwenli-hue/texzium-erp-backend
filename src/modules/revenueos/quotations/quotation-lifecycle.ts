@@ -95,9 +95,11 @@ type QuotationAmounts = {
   totalAmount: number;
 };
 
-// The backend is authoritative for a quotation's amounts. Quantity and unit
-// price are not stored, so a revision works on the taxable amount: GST comes
-// from the percentage the quotation already carries, and the total is the sum.
+// The backend is authoritative for a quotation's amounts: GST comes from the
+// percentage the quotation carries, and the total is the sum, each rounded to
+// the paisa. A quotation with a priced line gets its taxable amount from the
+// line (quantity x unit rate); one stored before lines existed is revised by its
+// taxable amount.
 export function computeQuotationAmounts(
   taxableAmount: number,
   gstPercent: number,

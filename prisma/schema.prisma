@@ -521,7 +521,7 @@ model Opportunity {
 
 model Quotation {
   id               String            @id @default(uuid())
-  quotationCode    String?
+  quotationCode    String?           @unique
   opportunityId    String
   quoteDate        DateTime
   totalAmount      Float
@@ -541,6 +541,38 @@ model Quotation {
 
   opportunity Opportunity       @relation(fields: [opportunityId], references: [id])
   events      QuotationEvent[]
+  lines       QuotationLine[]
+}
+
+// The priced lines of a quotation (manual migration
+// 20261015_quotation_proforma_lines.sql). Every amount is worked out by the
+// backend when the line is written: taxable = quantity x unit rate (to the
+// paisa), GST at the HSN rate the line was quoted at, split into CGST + SGST or
+// IGST by the quotation's tax type. The product's name and HSN are copied, so
+// the line keeps what was quoted if the item master changes later. Quotations
+// created before lines were stored have none; none are made up for them.
+model QuotationLine {
+  id              String   @id @default(uuid())
+  quotationId     String
+  lineNumber      Int
+  inventoryItemId String?
+  description     String
+  hsnCode         String?
+  quantity        Float
+  unitRate        Float
+  taxableAmount   Float
+  gstRate         Float
+  cgstAmount      Float    @default(0)
+  sgstAmount      Float    @default(0)
+  igstAmount      Float    @default(0)
+  gstAmount       Float
+  totalAmount     Float
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  quotation Quotation @relation(fields: [quotationId], references: [id])
+
+  @@unique([quotationId, lineNumber])
 }
 
 model SalesOrder {
@@ -731,7 +763,7 @@ model Delivery {
 model ProformaInvoice {
   id             String       @id @default(uuid())
   quotationId    String
-  proformaNumber String?
+  proformaNumber String?      @unique
   issueDate      DateTime
   totalAmount    Float
   customerStatus String       @default("PENDING")
@@ -743,6 +775,34 @@ model ProformaInvoice {
 
   quotation Quotation        @relation(fields: [quotationId], references: [id])
   events    ProformaEvent[]
+  lines     ProformaInvoiceLine[]
+}
+
+// The lines of a Proforma Invoice: a copy of its Quotation's lines taken when the
+// Proforma is created (the Quotation is APPROVED and cannot be revised while the
+// Proforma is active). A Proforma of a Quotation that has no lines has none.
+model ProformaInvoiceLine {
+  id                    String   @id @default(uuid())
+  proformaInvoiceId     String
+  sourceQuotationLineId String?
+  lineNumber            Int
+  inventoryItemId       String?
+  description           String
+  hsnCode               String?
+  quantity              Float
+  unitRate              Float
+  taxableAmount         Float
+  gstRate               Float
+  cgstAmount            Float    @default(0)
+  sgstAmount            Float    @default(0)
+  igstAmount            Float    @default(0)
+  gstAmount             Float
+  totalAmount           Float
+  createdAt             DateTime @default(now())
+
+  proformaInvoice ProformaInvoice @relation(fields: [proformaInvoiceId], references: [id])
+
+  @@unique([proformaInvoiceId, lineNumber])
 }
 
 model ProformaEvent {

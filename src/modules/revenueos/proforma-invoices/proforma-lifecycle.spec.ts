@@ -130,12 +130,20 @@ function makeDb() {
     customers: Row[];
     users: Row[];
     eventFailure: boolean;
+    quotationLines: Row[];
+    proformaLines: Row[];
+    sellers: Row[];
+    counters: Record<string, number>;
   } = {
     quotations: [],
     proformas: [],
     orders: [],
     events: [],
     customers: [],
+    quotationLines: [],
+    proformaLines: [],
+    sellers: [],
+    counters: {},
     users: [{ id: USER, fullName: 'Asha Approver' }],
     eventFailure: false,
   };
@@ -145,8 +153,14 @@ function makeDb() {
     (typeof cond === 'string' ? cond === value : cond.not !== value);
 
   const db: any = {
-    $queryRaw: async (strings: TemplateStringsArray, id: string) => {
+    $queryRaw: async (strings: TemplateStringsArray, ...v: any[]) => {
       const sql = strings.join('?');
+      const id = v[0];
+      if (sql.includes('document-number:allocate')) {
+        const key = v.join('|');
+        state.counters[key] = (state.counters[key] ?? 0) + 1;
+        return [{ lastNumber: state.counters[key] }];
+      }
       if (sql.includes('customer:lock-shared')) {
         const c = state.customers.find((x) => x.id === id);
         return c ? [{ isActive: c.isActive }] : [];
@@ -162,11 +176,18 @@ function makeDb() {
       throw new Error(`unexpected raw query: ${sql}`);
     },
     $transaction: async (fn: (tx: any) => Promise<any>) => {
-      const snapshot = JSON.stringify({ p: state.proformas, e: state.events });
+      const snapshot = JSON.stringify({
+        p: state.proformas,
+        e: state.events,
+        l: state.proformaLines,
+        c: state.counters,
+      });
       try {
         return await fn(db);
       } catch (e) {
         const s = JSON.parse(snapshot);
+        state.proformaLines = s.l;
+        state.counters = s.c;
         // dates survive as strings in the snapshot, which is fine for these tests
         state.proformas = s.p.map((r: Row) => ({
           ...r,
@@ -187,7 +208,22 @@ function makeDb() {
       findUniqueOrThrow: async ({ where }: any) => {
         const q = state.quotations.find((x) => x.id === where.id);
         if (!q) throw new Error('quotation not found');
-        return { ...q };
+        return {
+          ...q,
+          lines: state.quotationLines
+            .filter((l) => l.quotationId === q.id)
+            .map((l) => ({ ...l })),
+        };
+      },
+    },
+    companyGSTRegistration: {
+      findUnique: async ({ where }: any) =>
+        state.sellers.find((x) => x.id === where.id) ?? null,
+    },
+    proformaInvoiceLine: {
+      createMany: async ({ data }: any) => {
+        data.forEach((d: Row) => state.proformaLines.push({ ...d }));
+        return { count: data.length };
       },
     },
     proformaInvoice: {
@@ -433,6 +469,68 @@ describe('Proforma lifecycle over HTTP', () => {
         actorId: USER,
       });
       expect(ctx.state.events[0].fromStatus).toBeUndefined();
+    });
+
+    it("is numbered from the seller registration's Proforma series and copies the Quotation's lines as stored", async () => {
+      ctx.state.quotations.push(quote({ sellerGstId: 'seller-24' }));
+      ctx.state.sellers.push({ id: 'seller-24', stateCode: '24' });
+      const qline = {
+        id: 'ql-1',
+        quotationId: QUOTE,
+        lineNumber: 1,
+        inventoryItemId: 'item-1',
+        description: 'Industrial pump',
+        hsnCode: '84137090',
+        quantity: 10,
+        unitRate: 25000,
+        taxableAmount: 250000,
+        gstRate: 18,
+        cgstAmount: 0,
+        sgstAmount: 0,
+        igstAmount: 45000,
+        gstAmount: 45000,
+        totalAmount: 295000,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+      ctx.state.quotationLines.push(qline);
+
+      const res = await http()
+        .post('/proforma-invoices')
+        .send(createBody())
+        .expect(201);
+
+      expect(res.body.proformaNumber).toMatch(/^PI24\/\d{2}-\d{2}\/00001$/);
+      expect(ctx.state.proformaLines).toEqual([
+        {
+          proformaInvoiceId: res.body.id,
+          sourceQuotationLineId: 'ql-1',
+          lineNumber: 1,
+          inventoryItemId: 'item-1',
+          description: 'Industrial pump',
+          hsnCode: '84137090',
+          quantity: 10,
+          unitRate: 25000,
+          taxableAmount: 250000,
+          gstRate: 18,
+          cgstAmount: 0,
+          sgstAmount: 0,
+          igstAmount: 45000,
+          gstAmount: 45000,
+          totalAmount: 295000,
+        },
+      ]);
+    });
+
+    it('a legacy Quotation (no seller registration, no lines) gives an unnumbered Proforma with no lines, as before', async () => {
+      ctx.state.quotations.push(quote());
+      const res = await http()
+        .post('/proforma-invoices')
+        .send(createBody())
+        .expect(201);
+      expect(res.body.proformaNumber).toBeNull();
+      expect(ctx.state.proformaLines).toHaveLength(0);
+      expect(ctx.state.counters).toEqual({});
     });
 
     it('accepts a supplied total that matches and never stores a different one', async () => {

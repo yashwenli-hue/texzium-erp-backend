@@ -26,6 +26,13 @@ import {
   totalsMatch,
 } from './proforma-lifecycle';
 import { requireActiveCustomerShared } from '../customer-master/customer-lifecycle';
+import { copyLineValues } from '../quotations/quotation-lines';
+import {
+  DOCUMENT_NUMBER_TYPE,
+  allocateDocumentNumber,
+} from '../../adminos/document-number-series/document-numbering';
+
+export const PROFORMA_LINES_ORDER = { lineNumber: 'asc' } as const;
 
 @Injectable()
 export class ProformaInvoicesService {
@@ -55,7 +62,9 @@ export class ProformaInvoicesService {
         where: { id: data.quotationId },
         select: {
           totalAmount: true,
+          sellerGstId: true,
           opportunity: { select: { customerId: true } },
+          lines: { orderBy: PROFORMA_LINES_ORDER },
         },
       });
 
@@ -93,17 +102,55 @@ export class ProformaInvoicesService {
       }
 
       const now = new Date();
+      const issueDate = new Date(data.issueDate);
+
+      // The next number of the seller registration's Proforma series. A legacy
+      // quotation without a seller registration gives an unnumbered Proforma,
+      // as before: no series is guessed for it.
+      const seller = quotation.sellerGstId
+        ? await tx.companyGSTRegistration.findUnique({
+            where: { id: quotation.sellerGstId },
+            select: { id: true, stateCode: true },
+          })
+        : null;
+      const proformaNumber = seller
+        ? (
+            await allocateDocumentNumber(
+              tx,
+              DOCUMENT_NUMBER_TYPE.PROFORMA_INVOICE,
+              {
+                kind: 'registration',
+                gstRegistrationId: seller.id,
+                stateCode: seller.stateCode,
+              },
+              issueDate,
+            )
+          ).number
+        : null;
 
       const proforma = await tx.proformaInvoice.create({
         data: {
           quotationId: data.quotationId,
-          issueDate: new Date(data.issueDate),
+          proformaNumber,
+          issueDate,
           totalAmount: quotation.totalAmount,
           customerStatus: PROFORMA_STATUS.PENDING,
           validityDate: data.validityDate ? new Date(data.validityDate) : null,
           remarks: data.remarks || undefined,
         },
       });
+
+      // The Quotation's lines as they are now (it is APPROVED, and cannot be
+      // revised while this Proforma is active). None if it has none.
+      if (quotation.lines.length > 0) {
+        await tx.proformaInvoiceLine.createMany({
+          data: quotation.lines.map((line) => ({
+            proformaInvoiceId: proforma.id,
+            sourceQuotationLineId: line.id,
+            ...copyLineValues(line),
+          })),
+        });
+      }
 
       await recordProformaEvent(tx, {
         proformaInvoiceId: proforma.id,
@@ -124,6 +171,7 @@ export class ProformaInvoicesService {
     const proformas = await this.prisma.proformaInvoice.findMany({
       include: {
         quotation: true,
+        lines: { orderBy: PROFORMA_LINES_ORDER },
       },
     });
 
