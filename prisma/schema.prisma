@@ -1656,6 +1656,38 @@ model Company {
   updatedAt   DateTime @updatedAt
 
   gstRegistrations CompanyGSTRegistration[]
+  documentProfile  CompanyDocumentProfile?
+}
+
+// What the company prints on its business documents besides its master data
+// (manual migration 20261015_company_document_profile.sql): registered office,
+// logo, bank details, terms per document type and the authorised signatory.
+// One per company; changed only by someone with documents.profile.manage. The
+// logo is a PNG or JPEG of at most 64 KB, stored in the row (nothing is
+// written to disk).
+model CompanyDocumentProfile {
+  id                      String   @id @default(uuid())
+  companyId               String   @unique
+  registeredOfficeAddress String?
+  logoData                Bytes?
+  logoMimeType            String?
+  bankAccountName         String?
+  bankName                String?
+  bankAccountNumber       String?
+  bankIfsc                String?
+  bankBranch              String?
+  upiId                   String?
+  quotationTerms          String?
+  proformaTerms           String?
+  invoiceTerms            String?
+  receiptNote             String?
+  signatoryName           String?
+  signatoryDesignation    String?
+  updatedById             String?
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id])
 }
 
 model CompanyGSTRegistration {

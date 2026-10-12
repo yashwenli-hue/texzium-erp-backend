@@ -123,6 +123,7 @@ import { DispatchOrderItemsModule } from './modules/operationsos/dispatch-order-
 import { InventoryTransactionsModule } from './modules/operationsos/inventory-transactions/inventory-transactions.module';
 import { InventoryEngineModule } from './modules/operationsos/inventory-engine/inventory-engine.module';
 import { DocumentNumberSeriesModule } from './modules/adminos/document-number-series/document-number-series.module';
+import { DocumentProfileModule } from './modules/adminos/document-profile/document-profile.module';
 
 
 @Module({
@@ -249,6 +250,7 @@ import { DocumentNumberSeriesModule } from './modules/adminos/document-number-se
     InventoryTransactionsModule,
     InventoryEngineModule,
     DocumentNumberSeriesModule,
+    DocumentProfileModule,
     ],
 })
 export class AppModule {}
