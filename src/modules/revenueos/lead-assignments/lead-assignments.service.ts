@@ -11,14 +11,19 @@ import { AssignLeadDto } from './dto/assign-lead.dto';
 import { QualifyLeadDto } from './dto/qualify-lead.dto';
 import { RejectLeadDto } from './dto/reject-lead.dto';
 import { UnassignLeadDto } from './dto/unassign-lead.dto';
+import { ReopenLeadDto } from './dto/reopen-lead.dto';
 import { lockActiveLeadForUpdate } from '../leads/lead-lifecycle';
 import {
   assignRefusal,
   canAssignLeadFrom,
   canQualifyLeadFrom,
   canRejectLeadFrom,
+  canReopenLeadFrom,
+  LEAD_REOPEN_TARGET,
+  leadStatusLabel,
   qualifyRefusal,
   rejectRefusal,
+  reopenRefusal,
 } from './lead-transitions';
 
 type Tx = Prisma.TransactionClient;
@@ -140,6 +145,7 @@ export class LeadAssignmentsService {
           remarks: `Assigned to pre-sales: ${assignee.fullName}${previously(lead, assignee.id)}.`,
           source: LeadTimelineSource.SYSTEM,
           actorId: actor.id,
+          subjectUserId: assignee.id,
         },
       });
 
@@ -182,6 +188,7 @@ export class LeadAssignmentsService {
           remarks: `Qualified and assigned to sales: ${salesUser.fullName}${previously(lead, salesUser.id)}.`,
           source: LeadTimelineSource.SYSTEM,
           actorId: actor.id,
+          subjectUserId: salesUser.id,
         },
       });
 
@@ -297,6 +304,49 @@ export class LeadAssignmentsService {
           action: 'LEAD_UNASSIGNED',
           remarks: `Unassigned from ${lead.assignedTo?.fullName ?? lead.assignedToId}; status returned to New.`,
           userRemark: data.remarks ?? null,
+          source: LeadTimelineSource.SYSTEM,
+          actorId: actor.id,
+          subjectUserId: lead.assignedToId,
+        },
+      });
+
+      return updated;
+    });
+  }
+
+  // Takes a rejected lead back into pre-qualification work (Contacted). The reason is
+  // required and kept as the person's remark on LEAD_REOPENED; the rejection and every
+  // earlier event stay as they are. The assignee is kept, as reject kept it. Under the
+  // lock, so a second reopen (or a reopen racing a deactivation) sees the first: 409.
+  async reopen(
+    leadId: string,
+    data: ReopenLeadDto,
+    actorId: string | undefined,
+  ) {
+    if (!actorId) {
+      throw new UnauthorizedException('Authenticated user required.');
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      await lockActiveLeadForUpdate(tx, leadId);
+      const actor = await requireActor(tx, actorId);
+      const lead = await currentLead(tx, leadId);
+
+      if (!canReopenLeadFrom(lead.status)) {
+        throw new ConflictException(reopenRefusal(lead.status));
+      }
+
+      const updated = await tx.lead.update({
+        where: { id: leadId },
+        data: { status: LEAD_REOPEN_TARGET },
+      });
+
+      await tx.leadTimeline.create({
+        data: {
+          leadId,
+          action: 'LEAD_REOPENED',
+          remarks: `Lead reopened; status returned to ${leadStatusLabel(LEAD_REOPEN_TARGET)}.`,
+          userRemark: data.reason,
           source: LeadTimelineSource.SYSTEM,
           actorId: actor.id,
         },

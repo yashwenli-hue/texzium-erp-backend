@@ -31,8 +31,11 @@ export class LeadsController {
 
   @Post()
   @Permissions('leads.create')
-  create(@Body() body: CreateLeadDto) {
-    return this.leadsService.create(body);
+  create(
+    @Body() body: CreateLeadDto,
+    @Req() req: { user?: { id?: string } },
+  ) {
+    return this.leadsService.create(body, req.user?.id);
   }
 
   @Get()

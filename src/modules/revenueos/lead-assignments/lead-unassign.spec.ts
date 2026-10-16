@@ -171,6 +171,7 @@ describe('PATCH /lead-assignments/:id/unassign', () => {
           userRemark: null,
           source: 'SYSTEM',
           actorId: ACTOR,
+          subjectUserId: ASSIGNEE,
         },
       });
     });

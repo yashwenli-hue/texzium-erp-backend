@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Post,
+  Req,
   UseGuards,
 } from '@nestjs/common';
 
@@ -21,7 +22,10 @@ export class LeadStatusController {
 
   @Post()
   @Permissions('leads.status.update')
-  update(@Body() body: UpdateLeadStatusDto) {
-    return this.leadStatusService.update(body);
+  update(
+    @Body() body: UpdateLeadStatusDto,
+    @Req() req: { user?: { id?: string } },
+  ) {
+    return this.leadStatusService.update(body, req.user?.id);
   }
 }

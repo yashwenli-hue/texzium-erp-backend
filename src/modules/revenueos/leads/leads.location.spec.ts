@@ -291,6 +291,8 @@ describe('Lead location (create and edit)', () => {
           leadId: 'new-lead',
           action: 'LEAD_CREATED',
           remarks: 'Lead created manually.',
+          // the creator, from the login token
+          actorId: 'user-1',
         },
       ]);
     });

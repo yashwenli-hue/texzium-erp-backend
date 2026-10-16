@@ -13,6 +13,7 @@ import { AssignLeadDto } from './dto/assign-lead.dto';
 import { QualifyLeadDto } from './dto/qualify-lead.dto';
 import { RejectLeadDto } from './dto/reject-lead.dto';
 import { UnassignLeadDto } from './dto/unassign-lead.dto';
+import { ReopenLeadDto } from './dto/reopen-lead.dto';
 
 import { JwtAuthGuard } from '../../../core/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../../core/guards/permissions.guard';
@@ -64,5 +65,17 @@ export class LeadAssignmentsController {
     @Req() req: AuthenticatedRequest,
   ) {
     return this.leadAssignmentsService.unassign(id, body, req.user?.id);
+  }
+
+  // A rejected lead back to Contacted, with the reason. Its own permission: reopening
+  // undoes a closing decision.
+  @Patch(':id/reopen')
+  @Permissions('leads.reopen')
+  reopen(
+    @Param('id') id: string,
+    @Body() body: ReopenLeadDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.leadAssignmentsService.reopen(id, body, req.user?.id);
   }
 }

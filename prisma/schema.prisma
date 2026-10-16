@@ -63,6 +63,7 @@ model User {
   assignedLeads      Lead[]
   completedFollowups LeadFollowup[] @relation("LeadFollowupCompletedBy")
   leadActivities     LeadTimeline[] @relation("LeadTimelineActor")
+  leadEventsAbout    LeadTimeline[] @relation("LeadTimelineSubject")
   deactivatedLeads   Lead[]         @relation("LeadDeactivatedBy")
   salesOrderEvents   SalesOrderEvent[] @relation("SalesOrderEventActor")
   quotationEvents    QuotationEvent[]  @relation("QuotationEventActor")
@@ -281,6 +282,9 @@ enum LeadStatus {
   PRE_SALES_ASSIGNED
   SALES_ASSIGNED
   REJECTED
+  // Contacted, but not yet a fit: it can still be qualified, rejected, or taken back
+  // to Contacted (manual migration 20261019_crm_lead_lifecycle_v2.sql).
+  UNDERQUALIFIED
 }
 
 model LeadSource {
@@ -387,8 +391,8 @@ model LeadTimeline {
   remarks String?
 
   // What the person who performed the action wrote about it: the optional remark
-  // on OPPORTUNITY_STAGE_CHANGED and LEAD_UNASSIGNED, and the required reason on
-  // LEAD_REJECTED. Kept apart from `remarks`, which is the system's own sentence
+  // on OPPORTUNITY_STAGE_CHANGED, LEAD_UNASSIGNED and STATUS_UPDATED, and the
+  // required reason on LEAD_REJECTED and LEAD_REOPENED. Kept apart from `remarks`, which is the system's own sentence
   // about the event. Null on every row recorded before it existed (an older
   // LEAD_REJECTED row keeps its reason in `remarks`), and whenever the person
   // wrote nothing. Never written from client-supplied actor data: the actor is the
@@ -400,12 +404,25 @@ model LeadTimeline {
   actorId      String?
   actor        User?              @relation("LeadTimelineActor", fields: [actorId], references: [id])
 
+  // The result of a CALL activity: CONNECTED, or NOT_CONNECTED (a call that did not
+  // connect, "CNC"). Null for every other entry and for calls logged without one.
+  // Checked in the database (manual migration 20261019_crm_lead_lifecycle_v2.sql).
+  outcome String?
+
+  // The person an assignment event is about: the pre-sales assignee on
+  // PRE_SALES_ASSIGNED, the sales user on LEAD_QUALIFIED, the person removed on
+  // LEAD_UNASSIGNED. Recorded from 20261019 on; older rows name the person only in
+  // `remarks`, which is never parsed back into an identity. Never client-supplied.
+  subjectUserId String?
+  subjectUser   User?   @relation("LeadTimelineSubject", fields: [subjectUserId], references: [id], onDelete: SetNull)
+
   // When the event happened; createdAt is when the row was recorded.
   occurredAt DateTime @default(now())
   createdAt  DateTime @default(now())
 
   @@index([leadId, occurredAt])
   @@index([actorId])
+  @@index([subjectUserId])
 }
 
 enum LeadFollowupStatus {

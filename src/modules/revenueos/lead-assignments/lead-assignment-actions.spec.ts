@@ -45,13 +45,15 @@ type Status = (typeof STATUSES)[number];
 
 // The agreed matrix: which statuses each action may start from.
 const ALLOWED: Record<'assign' | 'qualify' | 'reject', Status[]> = {
-  assign: ['NEW', 'ASSIGNED', 'CONTACTED', 'PRE_SALES_ASSIGNED'],
-  qualify: ['NEW', 'ASSIGNED', 'CONTACTED', 'PRE_SALES_ASSIGNED'],
+  assign: ['NEW', 'ASSIGNED', 'CONTACTED', 'PRE_SALES_ASSIGNED', 'UNDERQUALIFIED'],
+  // QUALIFIED without a hand-off to sales can still be handed over (it was stuck before).
+  qualify: ['NEW', 'ASSIGNED', 'CONTACTED', 'PRE_SALES_ASSIGNED', 'UNDERQUALIFIED', 'QUALIFIED'],
   reject: [
     'NEW',
     'ASSIGNED',
     'CONTACTED',
     'PRE_SALES_ASSIGNED',
+    'UNDERQUALIFIED',
     'QUALIFIED',
     'SALES_ASSIGNED',
     'PROPOSAL_SENT',
@@ -371,7 +373,7 @@ describe('Lead assign / qualify / reject', () => {
     });
   });
 
-  describe('the transition matrix (all 11 statuses)', () => {
+  describe('the transition matrix (all 12 statuses)', () => {
     const cases = (['assign', 'qualify', 'reject'] as const).flatMap((action) =>
       STATUSES.map(
         (from) => [action, from, ALLOWED[action].includes(from)] as const,
@@ -446,6 +448,7 @@ describe('Lead assign / qualify / reject', () => {
           remarks: 'Assigned to pre-sales: Yash Kumar.',
           source: 'SYSTEM',
           actorId: ACTOR,
+          subjectUserId: YASH,
         },
       });
     });
@@ -489,6 +492,7 @@ describe('Lead assign / qualify / reject', () => {
             'Qualified and assigned to sales: Yash Kumar (previously Asha Rao).',
           source: 'SYSTEM',
           actorId: ACTOR,
+          subjectUserId: YASH,
         },
       });
     });

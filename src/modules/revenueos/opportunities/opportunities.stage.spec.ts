@@ -78,6 +78,11 @@ describe('Opportunity stage', () => {
         return { id: 'o-new', ...args.data };
       }),
     },
+    // A qualified lead: an opportunity can only be created for one (the gate has its
+    // own tests in opportunity-create-gate.spec.ts).
+    lead: {
+      findUniqueOrThrow: jest.fn(async () => ({ status: 'SALES_ASSIGNED' })),
+    },
     user: {
       findUnique: jest.fn(async (args: any) =>
         args.where.id === 'user-1' ? { id: 'user-1' } : null,

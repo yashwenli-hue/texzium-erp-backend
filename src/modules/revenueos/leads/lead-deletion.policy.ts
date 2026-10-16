@@ -94,6 +94,8 @@ const TIMELINE_COLUMNS = [
   'source',
   'activityType',
   'actorId',
+  'outcome',
+  'subjectUserId',
   'occurredAt',
   'createdAt',
 ] as const;
@@ -352,6 +354,7 @@ export const LEAD_DELETION_POLICY: DeletionPolicy = {
       lead.assignedToId,
       lead.deactivatedById,
       ...timelines.map((entry) => entry.actorId),
+      ...timelines.map((entry) => entry.subjectUserId),
       ...followups.map((followup) => followup.completedById),
     ]) {
       if (id) {
@@ -446,6 +449,7 @@ export const LEAD_DELETION_POLICY: DeletionPolicy = {
       lead.assignedToId,
       lead.deactivatedById,
       ...timelines.map((row) => row.actorId),
+      ...timelines.map((row) => row.subjectUserId),
       ...followups.map((row) => row.completedById),
     ]);
     const people = await db.user.findMany({

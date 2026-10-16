@@ -97,6 +97,14 @@ function makeDb() {
       }
       throw new Error(`unexpected raw query: ${sql}`);
     },
+    lead: {
+      // Every lead here is qualified: the create gate is tested in opportunity-create-gate.spec.ts.
+      findUniqueOrThrow: async ({ where }: any) => {
+        const l = state.leads.find((x: any) => x.id === where.id);
+        if (!l) throw new Error('lead not found');
+        return { status: l.status ?? 'SALES_ASSIGNED' };
+      },
+    },
     $transaction: async (fn: (tx: any) => Promise<any>) => {
       const snapshot = JSON.stringify({
         o: state.opportunities,

@@ -31,6 +31,10 @@ import {
   lockOpportunityForLink,
   usesRegistrationOfAnotherCustomer,
 } from './opportunity-customer';
+import {
+  canCreateOpportunityFor,
+  opportunityRefusal,
+} from '../lead-assignments/lead-transitions';
 
 const CUSTOMER_INACTIVE_FOR_LINK =
   'This customer is inactive. Reactivate it before linking it to an opportunity.';
@@ -48,6 +52,17 @@ export class OpportunitiesService {
       // An opportunity blocks deactivation, so it must not be created while
       // the lead is being deactivated (and vice versa).
       await lockActiveLeadForWrite(tx, data.leadId);
+
+      // Only a qualified lead (or one already in sales, or won) becomes an opportunity.
+      // The shared lock keeps its status from changing until this commits.
+      const lead = await tx.lead.findUniqueOrThrow({
+        where: { id: data.leadId },
+        select: { status: true },
+      });
+
+      if (!canCreateOpportunityFor(lead.status)) {
+        throw new ConflictException(opportunityRefusal(lead.status));
+      }
 
       // A customer given at creation must be active, and stays so until this
       // commits.

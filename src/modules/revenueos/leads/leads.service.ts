@@ -38,7 +38,10 @@ export class LeadsService {
     private readonly prisma: PrismaService,
   ) {}
 
-  async create(data: CreateLeadDto) {
+  // The creator is recorded on LEAD_CREATED (it is also how the person who entered the
+  // lead keeps sight of it). Leads that arrive from the WhatsApp bot or a webhook are
+  // created elsewhere and have no actor.
+  async create(data: CreateLeadDto, actorId?: string) {
     const source =
       await this.prisma.leadSource.findUnique({
         where: {
@@ -85,6 +88,7 @@ export class LeadsService {
         leadId: lead.id,
         action: 'LEAD_CREATED',
         remarks: 'Lead created manually.',
+        actorId: actorId ?? null,
       },
     });
 
@@ -149,6 +153,16 @@ export class LeadsService {
       throw new UnauthorizedException('Authenticated user required.');
     }
 
+    if (data.outcome && data.activityType !== 'CALL') {
+      throw new BadRequestException('Only a call has an outcome.');
+    }
+
+    if (!data.remarks && !data.outcome) {
+      throw new BadRequestException(
+        'Write what happened, or choose the call outcome.',
+      );
+    }
+
     const lead = await this.prisma.lead.findUnique({
       where: { id: leadId },
       select: { id: true, isActive: true },
@@ -193,7 +207,8 @@ export class LeadsService {
           source: LeadTimelineSource.EMPLOYEE,
           activityType: data.activityType,
           action: `ACTIVITY_${data.activityType}`,
-          remarks: data.remarks,
+          remarks: data.remarks ?? null,
+          outcome: data.outcome ?? null,
           actorId,
           occurredAt,
         },

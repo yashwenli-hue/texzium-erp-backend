@@ -306,10 +306,15 @@ describe('Opportunity stage remark', () => {
     const src = (rel: string) =>
       fs.readFileSync(path.join(__dirname, '../../..', rel), 'utf8');
 
-    it('is written by updateStage, the lead rejection and the lead unassignment only; every other timeline writer leaves userRemark alone', () => {
+    it('is written by updateStage, the pre-qualification status move, and the lead rejection, unassignment and reopening only; every other timeline writer leaves userRemark alone', () => {
+      // The status move (STATUS_UPDATED) stores its optional remark exactly once.
+      expect(
+        src('modules/revenueos/lead-status/lead-status.service.ts').match(
+          /userRemark/g,
+        ),
+      ).toHaveLength(1);
       const writers = [
         'modules/revenueos/leads/leads.service.ts',
-        'modules/revenueos/lead-status/lead-status.service.ts',
         'modules/revenueos/lead-followups/lead-followups.service.ts',
         'modules/adminos/webhooks/webhooks.service.ts',
         'core/whatsapp/whatsapp.service.ts',
@@ -321,13 +326,13 @@ describe('Opportunity stage remark', () => {
         ),
       ).toHaveLength(1);
 
-      // The assignment service writes it twice: in rejectLead (LEAD_REJECTED, the
-      // reason) and in unassign (LEAD_UNASSIGNED, the remark). Assign and qualify
-      // leave it alone.
+      // The assignment service writes it three times: in rejectLead (LEAD_REJECTED,
+      // the reason), unassign (LEAD_UNASSIGNED, the remark) and reopen (LEAD_REOPENED,
+      // the reason). Assign and qualify leave it alone.
       const assignments = src(
         'modules/revenueos/lead-assignments/lead-assignments.service.ts',
       );
-      const methods = ['assign', 'qualifyLead', 'rejectLead', 'unassign'].map(
+      const methods = ['assign', 'qualifyLead', 'rejectLead', 'unassign', 'reopen'].map(
         (name) => assignments.indexOf(`async ${name}(`),
       );
       methods.forEach((at) => expect(at).toBeGreaterThan(-1));
@@ -335,8 +340,8 @@ describe('Opportunity stage remark', () => {
       const remarkWriters = [...assignments.matchAll(/userRemark/g)].map(
         (m) => methods.filter((at) => at < (m.index ?? 0)).length - 1,
       );
-      // index into ['assign', 'qualifyLead', 'rejectLead', 'unassign']
-      expect(remarkWriters).toEqual([2, 3]);
+      // index into ['assign', 'qualifyLead', 'rejectLead', 'unassign', 'reopen']
+      expect(remarkWriters).toEqual([2, 3, 4]);
     });
   });
 });

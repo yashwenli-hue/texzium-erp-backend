@@ -130,6 +130,10 @@ describe('Lead deactivate / reactivate', () => {
         writes.push('lead.update');
         return { id: args.where.id };
       }),
+      // The opportunity create gate reads the status; these leads are all eligible.
+      findUniqueOrThrow: jest.fn(async (args: any) => ({
+        status: leads[args.where.id]?.status ?? 'SALES_ASSIGNED',
+      })),
     },
     user: {
       // user-1 is the signed-in user; u9 is an active user leads are assigned to.
