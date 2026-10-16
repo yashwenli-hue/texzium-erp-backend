@@ -125,6 +125,14 @@ export class ListContentAssetsQueryDto {
   @IsOptional()
   @IsUUID()
   inventoryItemId?: string;
+
+  // The product category of the linked inventory item (InventoryItem.category, exact,
+  // case-insensitive): "all the catalogues for needle looms".
+  @IsOptional()
+  @Transform(trim)
+  @IsString()
+  @MaxLength(100)
+  category?: string;
 }
 
 export class ContentAccessUrlDto {

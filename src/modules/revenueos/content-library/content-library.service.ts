@@ -116,6 +116,13 @@ export class ContentLibraryService {
     if (status !== 'ALL') where.status = status;
     if (query.kind) where.kind = query.kind;
     if (query.inventoryItemId) where.inventoryItemId = query.inventoryItemId;
+    if (query.category) {
+      const items = await this.prisma.inventoryItem.findMany({
+        where: { category: { equals: query.category, mode: 'insensitive' } },
+        select: { id: true },
+      });
+      where.AND = [{ inventoryItemId: { in: items.map((i) => i.id) } }];
+    }
     if (query.tag) where.tags = { has: query.tag.toLowerCase() };
     if (query.q) {
       where.OR = [
@@ -434,7 +441,7 @@ export class ContentLibraryService {
       }),
       this.prisma.inventoryItem.findMany({
         where: { id: { in: itemIds } },
-        select: { id: true, sku: true, productName: true },
+        select: { id: true, sku: true, productName: true, category: true },
       }),
     ]);
     return {
