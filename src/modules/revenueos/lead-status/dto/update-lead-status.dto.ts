@@ -1,6 +1,12 @@
 import { LeadStatus } from '@prisma/client';
 import { Transform } from 'class-transformer';
-import { IsEnum, IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
+import {
+  IsEnum,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  MaxLength,
+} from 'class-validator';
 
 import { OPPORTUNITY_STAGE_REMARK_MAX_LENGTH } from '../../opportunities/opportunity-stage';
 

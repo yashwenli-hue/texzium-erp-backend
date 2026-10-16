@@ -48,7 +48,9 @@ export class CustomerDuplicateCheckQueryDto {
   // only a complete GSTIN is compared (a half-typed one matches nothing).
   @IsOptional()
   @Transform(({ value }: { value: unknown }) =>
-    typeof value === 'string' ? value.replace(/[\s./-]+/g, '').toUpperCase() || undefined : value,
+    typeof value === 'string'
+      ? value.replace(/[\s./-]+/g, '').toUpperCase() || undefined
+      : value,
   )
   @IsString()
   @MaxLength(20)

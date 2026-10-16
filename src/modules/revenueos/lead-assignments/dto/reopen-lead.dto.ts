@@ -3,7 +3,8 @@ import { IsNotEmpty, IsString, MaxLength } from 'class-validator';
 
 import { OPPORTUNITY_STAGE_REMARK_MAX_LENGTH } from '../../opportunities/opportunity-stage';
 
-export const LEAD_REOPEN_REASON_MAX_LENGTH = OPPORTUNITY_STAGE_REMARK_MAX_LENGTH;
+export const LEAD_REOPEN_REASON_MAX_LENGTH =
+  OPPORTUNITY_STAGE_REMARK_MAX_LENGTH;
 
 const trim = ({ value }: { value: unknown }) =>
   typeof value === 'string' ? value.trim() : value;
