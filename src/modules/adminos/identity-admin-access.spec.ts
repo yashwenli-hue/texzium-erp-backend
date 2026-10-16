@@ -118,6 +118,8 @@ function prismaDouble() {
   const db: any = {
     user: {
       findUnique: jest.fn().mockResolvedValue({ id: ACTOR }),
+      // GET /roles counts each role's users with a groupBy (no user rows).
+      groupBy: jest.fn().mockResolvedValue([]),
       // A row as an unsafe select WOULD return it: the interceptor must still strip it.
       findMany: jest
         .fn()
@@ -257,8 +259,13 @@ describe('Identity administration: access, delegation, audit and redaction', () 
       expect(declared).toEqual({
         'UsersController.create': ['users.create'],
         'UsersController.findAll': ['users.view'],
+        'UsersController.changeRole': ['users.view', 'users.role.assign'],
+        'UsersController.changeStatus': ['users.view', 'users.status.manage'],
         'RolesController.create': ['roles.create'],
         'RolesController.findAll': ['roles.view'],
+        'RolesController.findOne': ['roles.view'],
+        // grant / revoke rights are checked in the service against the request body
+        'RolesController.updatePermissions': ['roles.view'],
         'PermissionsController.create': ['permissions.manage'],
         'PermissionsController.findAll': ['roles.view'],
         'RolePermissionsController.assign': ['roles.permissions.assign'],

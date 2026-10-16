@@ -1,4 +1,8 @@
-import { ForbiddenException, UnauthorizedException } from '@nestjs/common';
+import {
+  ConflictException,
+  ForbiddenException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 
 // Shared rules for administering users, roles and permissions.
@@ -63,6 +67,9 @@ export async function recordAdminAudit(
       | 'ROLE_CREATED'
       | 'PERMISSION_CREATED'
       | 'ROLE_PERMISSION_ASSIGNED'
+      | 'ROLE_PERMISSION_REVOKED'
+      | 'USER_ROLE_CHANGED'
+      | 'USER_STATUS_CHANGED'
       | 'WHATSAPP_CONFIG_CREATED'
       | 'WHATSAPP_CONFIG_UPDATED';
     // Defaults to AdminOS.
@@ -80,4 +87,61 @@ export async function recordAdminAudit(
       newData: entry.newData,
     },
   });
+}
+
+// Permissions that open money, documents, deletion, every record or the permission
+// system itself. Granting one needs an explicit acknowledgement in the request
+// (acknowledgeSensitive: true), so a broad grant is never made by accident; the
+// screens ask the person to confirm before they send it.
+export const SENSITIVE_PERMISSIONS: readonly string[] = [
+  'revenue.view.all',
+  'invoices.create',
+  'invoices.document.view',
+  'collections.record',
+  'governance.deletions.view',
+  'governance.deletions.restore',
+  'governance.deletions.purge',
+  'leads.delete',
+  'customers.delete',
+  'permissions.manage',
+  'roles.create',
+  'roles.permissions.assign',
+  'roles.permissions.revoke',
+  'users.create',
+  'users.view',
+  'users.role.assign',
+  'users.status.manage',
+  'whatsapp.config.view',
+  'whatsapp.config.manage',
+  'documents.profile.manage',
+];
+
+export const isSensitivePermission = (code: string) =>
+  SENSITIVE_PERMISSIONS.includes(code);
+
+// The permission whose loss would lock everyone out of administering access.
+export const ADMIN_ANCHOR_PERMISSION = 'roles.permissions.assign';
+
+// After a change, at least one ACTIVE user must still hold the anchor permission
+// through their role; otherwise the change is refused (and, being in the same
+// transaction, undone).
+export async function assertAdministrationRemains(
+  db: Prisma.TransactionClient,
+): Promise<void> {
+  const holders = await db.user.count({
+    where: {
+      status: 'ACTIVE',
+      role: {
+        permissions: {
+          some: { permission: { code: ADMIN_ANCHOR_PERMISSION } },
+        },
+      },
+    },
+  });
+
+  if (holders === 0) {
+    throw new ConflictException(
+      `This would leave no active user who can assign permissions (${ADMIN_ANCHOR_PERMISSION}), so nobody could administer access any more. Nothing was changed.`,
+    );
+  }
 }

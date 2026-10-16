@@ -19,6 +19,7 @@ import { Module } from '@nestjs/common';
 import { AuthModule } from './core/auth/auth.module';
 import { UsersModule } from './modules/adminos/users/users.module';
 import { RolesModule } from './modules/adminos/roles/roles.module';
+import { IdentityAuditModule } from './modules/adminos/identity-audit/identity-audit.controller';
 import { PermissionsModule } from './modules/adminos/permissions/permissions.module';
 import { RolePermissionsModule } from './modules/adminos/role-permissions/role-permissions.module';
 import { LeadSourcesModule } from './modules/revenueos/lead-sources/lead-sources.module';
@@ -148,6 +149,7 @@ import { ContentLibraryModule } from './modules/revenueos/content-library/conten
     AuthModule,
     UsersModule,
     RolesModule,
+    IdentityAuditModule,
     PermissionsModule,
     RolePermissionsModule,
     LeadSourcesModule,

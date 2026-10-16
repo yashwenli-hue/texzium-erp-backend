@@ -39,6 +39,14 @@ export class AuthService {
       throw new UnauthorizedException('Invalid credentials');
     }
 
+    // Only an ACTIVE account signs in. Checked after the password, so the answer never
+    // tells a stranger which accounts exist or what state they are in.
+    if (user.status !== 'ACTIVE') {
+      throw new UnauthorizedException(
+        'This account is not active. Ask an administrator.',
+      );
+    }
+
     const payload = {
       sub: user.id,
       email: user.email,
