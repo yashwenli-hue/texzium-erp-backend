@@ -15,6 +15,8 @@ import { UpdateLeadDto } from './dto/update-lead.dto';
 import { CreateLeadActivityDto } from './dto/create-lead-activity.dto';
 import { SearchLeadsQueryDto } from './dto/search-leads-query.dto';
 import { searchLeads } from './lead-search';
+import { findLeadDuplicates } from './lead-duplicates';
+import { LeadDuplicateCheckQueryDto } from './dto/lead-duplicate-check.dto';
 import {
   LEAD_ACTOR_SELECT,
   LEAD_HISTORY_INCLUDE,
@@ -117,6 +119,21 @@ export class LeadsService {
   // server, inside the caller's record scope (lead-search.ts).
   async search(query: SearchLeadsQueryDto, scope: RecordScope) {
     return searchLeads(this.prisma, query, scope);
+  }
+
+  // Likely duplicates of a lead being entered (lead-duplicates.ts).
+  async duplicateCheck(query: LeadDuplicateCheckQueryDto, scope: RecordScope) {
+    return findLeadDuplicates(this.prisma, query, scope);
+  }
+
+  // Likely duplicates of an existing lead, each marked earlier or later than it.
+  async duplicatesOf(id: string, scope: RecordScope) {
+    const lead = await this.prisma.lead.findUnique({
+      where: { id },
+      select: { phone: true, alternatePhone: true, email: true, customerName: true, companyName: true, city: true, createdAt: true },
+    });
+    if (!lead) throw new NotFoundException('Lead not found.');
+    return findLeadDuplicates(this.prisma, { ...lead, excludeLeadId: id }, scope);
   }
 
   async findOne(id: string) {
