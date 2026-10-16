@@ -18,6 +18,11 @@ import { CustomerDeletionController } from '../customer-master/customer-deletion
 import { LeadDeletionController } from '../leads/lead-deletion.controller';
 import { DataDeletionsController } from './data-deletion.controller';
 import { DataDeletionService } from './data-deletion.service';
+import { RecordScopeGuard } from '../record-scope/record-scope.guard';
+
+// Who may see which record is tested on its own (record-scope.spec.ts and the
+// integration tests); here every caller may see every record.
+const SCOPE_TESTED_ELSEWHERE = { canActivate: () => true };
 
 // Who may do what, checked through real HTTP with the REAL PermissionsGuard (only the
 // token check is replaced, by a stand-in that puts the test's user on the request): every
@@ -186,6 +191,8 @@ describe('who may delete, view, restore and purge (real HTTP, real PermissionsGu
           return true;
         },
       })
+      .overrideGuard(RecordScopeGuard)
+      .useValue(SCOPE_TESTED_ELSEWHERE)
       .compile();
 
     app = moduleRef.createNestApplication();

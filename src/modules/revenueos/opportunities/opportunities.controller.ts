@@ -17,13 +17,20 @@ import { LinkOpportunityCustomerDto } from './dto/link-opportunity-customer.dto'
 import { JwtAuthGuard } from '../../../core/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../../core/guards/permissions.guard';
 import { Permissions } from '../../../core/decorators/permissions.decorator';
+import {
+  RecordScopeGuard,
+  ScopedRecord,
+} from '../record-scope/record-scope.guard';
+import { scopeOf } from '../record-scope/record-scope';
 
 @Controller('opportunities')
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, RecordScopeGuard)
 export class OpportunitiesController {
   constructor(private readonly opportunitiesService: OpportunitiesService) {}
 
   @Post()
+  @ScopedRecord('lead', 'body.leadId')
+  @ScopedRecord('customer', 'body.customerId')
   @Permissions('opportunities.create')
   create(
     @Body() body: CreateOpportunityDto,
@@ -34,11 +41,12 @@ export class OpportunitiesController {
 
   @Get()
   @Permissions('opportunities.view')
-  findAll() {
-    return this.opportunitiesService.findAll();
+  findAll(@Req() req: { user?: { id?: string; permissions?: unknown } }) {
+    return this.opportunitiesService.findAll(scopeOf(req.user));
   }
 
   @Get(':id')
+  @ScopedRecord('opportunity', 'params.id')
   @Permissions('opportunities.view')
   findOne(@Param('id') id: string) {
     return this.opportunitiesService.findOne(id);
@@ -46,6 +54,7 @@ export class OpportunitiesController {
 
   // One step forward or back, or Lost. Won and Lost are final.
   @Patch(':id/stage')
+  @ScopedRecord('opportunity', 'params.id')
   @Permissions('opportunities.edit')
   updateStage(
     @Param('id') id: string,
@@ -58,6 +67,8 @@ export class OpportunitiesController {
   // Links the opportunity to a customer, changes it, or (null) removes it.
   // Refused once the opportunity has a quotation.
   @Patch(':id/customer')
+  @ScopedRecord('opportunity', 'params.id')
+  @ScopedRecord('customer', 'body.customerId')
   @Permissions('opportunities.edit')
   linkCustomer(
     @Param('id') id: string,

@@ -39,6 +39,11 @@ import {
 import { loadDocumentIssuer } from '../../adminos/document-profile/document-identity';
 import type { ProformaDocumentData } from './proforma-document';
 import { PROFORMA_NOT_FOUND_MESSAGE } from './proforma-lifecycle';
+import {
+  ALL_RECORDS,
+  RecordScope,
+  proformaWhere,
+} from '../record-scope/record-scope';
 
 export const PROFORMA_LINES_ORDER = { lineNumber: 'asc' } as const;
 
@@ -215,9 +220,10 @@ export class ProformaInvoicesService {
 
   // Every Proforma with its Quotation. `isExpired` is derived from the
   // validity date by the same rule approval and Sales Order creation use.
-  async findAll() {
+  async findAll(scope: RecordScope = ALL_RECORDS) {
     const now = new Date();
     const proformas = await this.prisma.proformaInvoice.findMany({
+      where: proformaWhere(scope),
       include: {
         quotation: true,
         lines: { orderBy: PROFORMA_LINES_ORDER },

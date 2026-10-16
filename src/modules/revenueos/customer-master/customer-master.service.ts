@@ -55,6 +55,11 @@ import {
   normalizeEmail,
   normalizePan,
 } from './customer-values';
+import {
+  ALL_RECORDS,
+  RecordScope,
+  customerWhere,
+} from '../record-scope/record-scope';
 
 // A code is taken from a sequence, so a clash can only come from a code
 // written by hand elsewhere. A new number is tried a few times before giving up.
@@ -186,8 +191,9 @@ export class CustomerMasterService {
     });
   }
 
-  async findAll() {
+  async findAll(scope: RecordScope = ALL_RECORDS) {
     return this.prisma.customer.findMany({
+      where: customerWhere(scope),
       include: CUSTOMER_INCLUDE,
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
     });
@@ -225,7 +231,12 @@ export class CustomerMasterService {
   // Customers that look like the one described, for a form to warn before it
   // saves. PAN and name matches are what create/edit refuse; phone and email
   // only warn. Nothing is written.
-  async duplicateCheck(query: CustomerDuplicateCheckQueryDto) {
+  // A scoped caller still learns that a match exists (that is what prevents the duplicate),
+  // but not which customer it is when it is one they may not see.
+  async duplicateCheck(
+    query: CustomerDuplicateCheckQueryDto,
+    scope: RecordScope = ALL_RECORDS,
+  ) {
     const { customerName, panNumber, phone, email } = query;
     // Only a complete GSTIN is compared: a half-typed one is a valid question that
     // matches nothing.
@@ -247,16 +258,44 @@ export class CustomerMasterService {
       excludeId: query.excludeCustomerId ?? null,
     });
 
-    const present = (m: CustomerMatch) => ({
-      id: m.id,
-      customerCode: m.customerCode,
-      customerName: m.customerName,
-      isActive: m.isActive,
-      reasons: matchReasons(m),
-      strength: matchStrength(m),
-    });
+    const visible = scope.all
+      ? null
+      : new Set(
+          (
+            await this.prisma.customer.findMany({
+              where: {
+                AND: [
+                  { id: { in: matches.map((m) => m.id) } },
+                  customerWhere(scope) ?? {},
+                ],
+              },
+              select: { id: true },
+            })
+          ).map((c) => c.id),
+        );
 
-    const blocks = (m: CustomerMatch) => m.gstinMatch || m.panMatch || m.nameMatch;
+    const present = (m: CustomerMatch) =>
+      !visible || visible.has(m.id)
+        ? {
+            id: m.id,
+            customerCode: m.customerCode,
+            customerName: m.customerName,
+            isActive: m.isActive,
+            reasons: matchReasons(m),
+            strength: matchStrength(m),
+          }
+        : {
+            id: null,
+            customerCode: null,
+            customerName: null,
+            isActive: null,
+            hidden: true,
+            reasons: matchReasons(m),
+            strength: matchStrength(m),
+          };
+
+    const blocks = (m: CustomerMatch) =>
+      m.gstinMatch || m.panMatch || m.nameMatch;
 
     return {
       blocking: matches.filter(blocks).map(present),

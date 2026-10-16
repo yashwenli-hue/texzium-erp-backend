@@ -6,6 +6,7 @@ import { JwtAuthGuard } from '../../../core/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../../core/guards/permissions.guard';
 import { PERMISSIONS_KEY } from '../../../core/decorators/permissions.decorator';
 import { PaymentCollectionsController } from './payment-collections.controller';
+import { RecordScopeGuard } from '../record-scope/record-scope.guard';
 
 const routes = ['create', 'findAll', 'findByInvoice', 'findOne'] as const;
 
@@ -15,8 +16,8 @@ describe('PaymentCollectionsController access', () => {
     PaymentCollectionsController,
   );
 
-  it('requires a signed-in user and checks permissions on every route', () => {
-    expect(guards).toEqual([JwtAuthGuard, PermissionsGuard]);
+  it('requires a signed-in user, checks permissions and the record scope on every route', () => {
+    expect(guards).toEqual([JwtAuthGuard, PermissionsGuard, RecordScopeGuard]);
   });
 
   it('PermissionsGuard lets a route through when it declares nothing, so every route must declare', () => {

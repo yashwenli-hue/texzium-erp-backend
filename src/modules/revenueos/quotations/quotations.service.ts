@@ -46,6 +46,11 @@ import {
 
 import { loadDocumentIssuer } from '../../adminos/document-profile/document-identity';
 import type { QuotationDocumentData } from './quotation-document';
+import {
+  ALL_RECORDS,
+  RecordScope,
+  quotationWhere,
+} from '../record-scope/record-scope';
 
 export const QUOTATION_LINES_ORDER = { lineNumber: 'asc' } as const;
 
@@ -211,8 +216,9 @@ export class QuotationsService {
     });
   }
 
-  async findAll() {
+  async findAll(scope: RecordScope = ALL_RECORDS) {
     return this.prisma.quotation.findMany({
+      where: quotationWhere(scope),
       include: {
         opportunity: true,
         lines: { orderBy: QUOTATION_LINES_ORDER },

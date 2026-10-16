@@ -8,6 +8,11 @@ import { DataDeletionsController } from '../data-governance/data-deletion.contro
 import { DataDeletionService } from '../data-governance/data-deletion.service';
 import { LeadDeletionController } from './lead-deletion.controller';
 import { LEAD_DELETION_POLICY } from './lead-deletion.policy';
+import { RecordScopeGuard } from '../record-scope/record-scope.guard';
+
+// Who may see which record is tested on its own (record-scope.spec.ts and the
+// integration tests); here every caller may see every record.
+const SCOPE_TESTED_ELSEWHERE = { canActivate: () => true };
 
 // The routes, their permissions and what the request may carry, with the service
 // replaced by a double (its rules are in data-deletion.service.spec.ts).
@@ -41,6 +46,8 @@ describe('lead deletion routes', () => {
           return true;
         },
       })
+      .overrideGuard(RecordScopeGuard)
+      .useValue(SCOPE_TESTED_ELSEWHERE)
       .compile();
 
     app = moduleRef.createNestApplication();

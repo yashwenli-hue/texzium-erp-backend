@@ -19,17 +19,22 @@ import { pdfAttachment } from '../../../core/documents/document-response';
 import { JwtAuthGuard } from '../../../core/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../../core/guards/permissions.guard';
 import { Permissions } from '../../../core/decorators/permissions.decorator';
+import {
+  RecordScopeGuard,
+  ScopedRecord,
+} from '../record-scope/record-scope.guard';
 
 // A customer's ledger statement, by customer id, as JSON or as a PDF built in memory.
 // Both need collections.view; both only read.
 @Controller('customers')
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, RecordScopeGuard)
 export class CustomerStatementsController {
   constructor(
     private readonly customerStatementsService: CustomerStatementsService,
   ) {}
 
   @Get(':id/statement')
+  @ScopedRecord('customer', 'params.id')
   @Permissions('collections.view')
   statement(
     @Param('id', new ParseUUIDPipe()) id: string,
@@ -39,6 +44,7 @@ export class CustomerStatementsController {
   }
 
   @Get(':id/statement.pdf')
+  @ScopedRecord('customer', 'params.id')
   @Permissions('collections.view')
   async statementPdf(
     @Param('id', new ParseUUIDPipe()) id: string,

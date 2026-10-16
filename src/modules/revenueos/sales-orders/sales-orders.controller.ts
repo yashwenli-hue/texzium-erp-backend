@@ -16,13 +16,19 @@ import { CancelSalesOrderDto } from './dto/cancel-sales-order.dto';
 import { JwtAuthGuard } from '../../../core/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../../core/guards/permissions.guard';
 import { Permissions } from '../../../core/decorators/permissions.decorator';
+import {
+  RecordScopeGuard,
+  ScopedRecord,
+} from '../record-scope/record-scope.guard';
+import { scopeOf } from '../record-scope/record-scope';
 
 @Controller('sales-orders')
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, RecordScopeGuard)
 export class SalesOrdersController {
   constructor(private readonly salesOrdersService: SalesOrdersService) {}
 
   @Post()
+  @ScopedRecord('proforma', 'body.proformaInvoiceId')
   @Permissions('salesorders.create')
   create(@Body() body: CreateSalesOrderDto) {
     return this.salesOrdersService.create(body);
@@ -30,12 +36,13 @@ export class SalesOrdersController {
 
   @Get()
   @Permissions('salesorders.view')
-  findAll() {
-    return this.salesOrdersService.findAll();
+  findAll(@Req() req: { user?: { id?: string; permissions?: unknown } }) {
+    return this.salesOrdersService.findAll(scopeOf(req.user));
   }
 
   // Cancels an order for good. The actor is the signed-in user.
   @Post(':id/cancel')
+  @ScopedRecord('salesOrder', 'params.id')
   @HttpCode(HttpStatus.OK)
   @Permissions('salesorders.cancel')
   cancel(
@@ -47,6 +54,7 @@ export class SalesOrdersController {
   }
 
   @Get(':id/events')
+  @ScopedRecord('salesOrder', 'params.id')
   @Permissions('salesorders.view')
   findEvents(@Param('id') id: string) {
     return this.salesOrdersService.findEvents(id);

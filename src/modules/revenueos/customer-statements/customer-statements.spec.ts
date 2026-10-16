@@ -12,6 +12,11 @@ import { CustomerStatementsController } from './customer-statements.controller';
 import { CustomerStatementsModule } from './customer-statements.module';
 import { STATEMENT_TOO_LONG_MESSAGE } from './customer-statements.service';
 import { istCalendarDay } from '../../../core/dates/ist';
+import { RecordScopeGuard } from '../record-scope/record-scope.guard';
+
+// Who may see which record is tested on its own (record-scope.spec.ts and the
+// integration tests); here every caller may see every record.
+const SCOPE_TESTED_ELSEWHERE = { canActivate: () => true };
 
 // GET /customers/:id/statement through real HTTP: the real global JwtAuthGuard and JWT
 // strategy, the credential-redaction interceptor, PermissionsGuard, ValidationPipe and
@@ -297,6 +302,8 @@ describe('GET /customers/:id/statement', () => {
     })
       .overrideProvider(PrismaService)
       .useValue(db)
+      .overrideGuard(RecordScopeGuard)
+      .useValue(SCOPE_TESTED_ELSEWHERE)
       .compile();
     app = moduleRef.createNestApplication({ logger: false });
     app.useGlobalPipes(

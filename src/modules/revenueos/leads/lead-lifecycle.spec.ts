@@ -18,8 +18,15 @@ import { SalesReportsService } from '../sales-reports/sales-reports.service';
 import { LEAD_DEACTIVATED_MESSAGE } from './lead-lifecycle';
 import { LeadsController } from './leads.controller';
 import { LeadsService } from './leads.service';
+import { RecordScopeGuard } from '../record-scope/record-scope.guard';
+
+// Who may see which record is tested on its own (record-scope.spec.ts and the
+// integration tests); here every caller may see every record.
+const SCOPE_TESTED_ELSEWHERE = { canActivate: () => true };
 
 const ALL = [
+  // an administrator: sees every lead and the company-wide reports
+  'revenue.view.all',
   'leads.view',
   'leads.edit',
   'leads.deactivate',
@@ -224,6 +231,8 @@ describe('Lead deactivate / reactivate', () => {
           return true;
         },
       })
+      .overrideGuard(RecordScopeGuard)
+      .useValue(SCOPE_TESTED_ELSEWHERE)
       .compile();
 
     app = moduleRef.createNestApplication();

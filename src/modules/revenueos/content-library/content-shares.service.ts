@@ -13,6 +13,13 @@ import {
 } from './content-library.service';
 import { ContentKind, KIND_LABEL } from './content-types';
 import { ShareContentDto } from './dto/share-content.dto';
+import {
+  ALL_RECORDS,
+  RecordScope,
+  customerWhere,
+  leadWhere,
+  opportunityWhere,
+} from '../record-scope/record-scope';
 
 export const CONTENT_SHARED_ACTION = 'CONTENT_SHARED';
 export const ARCHIVED_NOT_SHAREABLE =
@@ -135,18 +142,53 @@ export class ContentSharesService {
     return { ...view, download };
   }
 
-  async listForAsset(assetId: string) {
+  // A scoped caller sees only the shares made to leads, opportunities and customers they
+  // may see (record-scope.ts): the history must not reveal who else received the item.
+  async listForAsset(assetId: string, scope: RecordScope = ALL_RECORDS) {
     const asset = await this.prisma.contentAsset.findUnique({
       where: { id: assetId },
       select: { id: true },
     });
     if (!asset) throw new NotFoundException(CONTENT_ASSET_NOT_FOUND);
     const shares = await this.prisma.contentShare.findMany({
-      where: { assetId },
+      where: scope.all
+        ? { assetId }
+        : {
+            assetId,
+            OR: [
+              { leadId: { in: await this.visibleIds('lead', scope) } },
+              {
+                opportunityId: {
+                  in: await this.visibleIds('opportunity', scope),
+                },
+              },
+              { customerId: { in: await this.visibleIds('customer', scope) } },
+            ],
+          },
       orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
       take: 200,
     });
     return this.views(shares);
+  }
+
+  private async visibleIds(
+    kind: 'lead' | 'opportunity' | 'customer',
+    scope: RecordScope,
+  ) {
+    const select = { id: true } as const;
+    const rows =
+      kind === 'lead'
+        ? await this.prisma.lead.findMany({ where: leadWhere(scope), select })
+        : kind === 'opportunity'
+          ? await this.prisma.opportunity.findMany({
+              where: opportunityWhere(scope),
+              select,
+            })
+          : await this.prisma.customer.findMany({
+              where: customerWhere(scope),
+              select,
+            });
+    return rows.map((r) => r.id);
   }
 
   private async lockLead(tx: Prisma.TransactionClient, id: string) {

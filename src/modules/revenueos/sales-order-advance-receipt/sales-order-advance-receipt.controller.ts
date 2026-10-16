@@ -16,15 +16,21 @@ import { RetractSalesOrderAdvanceReceiptVerificationDto } from './dto/retract-sa
 import { JwtAuthGuard } from '../../../core/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../../core/guards/permissions.guard';
 import { Permissions } from '../../../core/decorators/permissions.decorator';
+import {
+  RecordScopeGuard,
+  ScopedRecord,
+} from '../record-scope/record-scope.guard';
+import { scopeOf } from '../record-scope/record-scope';
 
 @Controller('sales-order-advance-receipt')
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, RecordScopeGuard)
 export class SalesOrderAdvanceReceiptController {
   constructor(
     private readonly salesOrderAdvanceReceiptService: SalesOrderAdvanceReceiptService,
   ) {}
 
   @Post('create')
+  @ScopedRecord('salesOrder', 'body.salesOrderId')
   @Permissions('salesorders.advancereceipts.create')
   create(@Body() data: CreateSalesOrderAdvanceReceiptDto) {
     return this.salesOrderAdvanceReceiptService.create(data);
@@ -32,6 +38,7 @@ export class SalesOrderAdvanceReceiptController {
 
   // Verifies or rejects a pending receipt. The actor is the signed-in user.
   @Patch(':id/verify')
+  @ScopedRecord('advanceReceipt', 'params.id')
   @Permissions('salesorders.advancereceipts.verify')
   verify(
     @Param('id') id: string,
@@ -43,6 +50,7 @@ export class SalesOrderAdvanceReceiptController {
 
   // Undoes a verification. The actor is the signed-in user.
   @Patch(':id/retract-verification')
+  @ScopedRecord('advanceReceipt', 'params.id')
   @Permissions('salesorders.advancereceipts.retract')
   retractVerification(
     @Param('id') id: string,
@@ -58,7 +66,7 @@ export class SalesOrderAdvanceReceiptController {
 
   @Get()
   @Permissions('salesorders.advancereceipts.view')
-  findAll() {
-    return this.salesOrderAdvanceReceiptService.findAll();
+  findAll(@Req() req: { user?: { id?: string; permissions?: unknown } }) {
+    return this.salesOrderAdvanceReceiptService.findAll(scopeOf(req.user));
   }
 }

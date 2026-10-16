@@ -19,12 +19,22 @@ import {
   gstinState,
   normalizeGstin,
 } from './customer-gst-values';
+import { RecordScopeGuard } from '../record-scope/record-scope.guard';
+
+// Who may see which record is tested on its own (record-scope.spec.ts and the
+// integration tests); here every caller may see every record.
+const SCOPE_TESTED_ELSEWHERE = { canActivate: () => true };
 
 const uid = (n: number) =>
   `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 
 const USER = 'user-1';
-const ALL_PERMISSIONS = ['customers.view', 'customers.gst.manage'];
+// revenue.view.all: an administrator, who sees every customer a refusal may name
+const ALL_PERMISSIONS = [
+  'customers.view',
+  'customers.gst.manage',
+  'revenue.view.all',
+];
 
 const RAJ = uid(1);
 const ABC = uid(2);
@@ -387,6 +397,8 @@ describe('Customer GST registrations over HTTP', () => {
           return true;
         },
       })
+      .overrideGuard(RecordScopeGuard)
+      .useValue(SCOPE_TESTED_ELSEWHERE)
       .compile();
 
     const instance = mod.createNestApplication();

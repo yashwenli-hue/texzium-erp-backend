@@ -11,6 +11,11 @@ import { PERMISSIONS_KEY } from '../../../core/decorators/permissions.decorator'
 import { LeadAssignmentsController } from './lead-assignments.controller';
 import { LeadAssignmentsModule } from './lead-assignments.module';
 import { LEAD_UNASSIGN_REMARK_MAX_LENGTH } from './dto/unassign-lead.dto';
+import { RecordScopeGuard } from '../record-scope/record-scope.guard';
+
+// Who may see which record is tested on its own (record-scope.spec.ts and the
+// integration tests); here every caller may see every record.
+const SCOPE_TESTED_ELSEWHERE = { canActivate: () => true };
 
 // PATCH /lead-assignments/:id/unassign through real HTTP: the real global JwtAuthGuard
 // and JWT strategy, PermissionsGuard, ValidationPipe and service. The database is a
@@ -66,6 +71,8 @@ describe('PATCH /lead-assignments/:id/unassign', () => {
     })
       .overrideProvider(PrismaService)
       .useValue(db)
+      .overrideGuard(RecordScopeGuard)
+      .useValue(SCOPE_TESTED_ELSEWHERE)
       .compile();
 
     app = moduleRef.createNestApplication({ logger: false });

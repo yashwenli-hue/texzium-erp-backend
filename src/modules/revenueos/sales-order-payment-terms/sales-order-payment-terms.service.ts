@@ -6,6 +6,11 @@ import {
   conflictNotAcceptingDocuments,
   readSalesOrderStatusShared,
 } from '../sales-orders/sales-order-lifecycle';
+import {
+  ALL_RECORDS,
+  RecordScope,
+  salesOrderChildWhere,
+} from '../record-scope/record-scope';
 
 @Injectable()
 export class SalesOrderPaymentTermsService {
@@ -36,8 +41,9 @@ export class SalesOrderPaymentTermsService {
     });
   }
 
-  async findAll() {
+  async findAll(scope: RecordScope = ALL_RECORDS) {
     return this.prisma.salesOrderPaymentTerm.findMany({
+      where: salesOrderChildWhere(scope),
       include: {
         salesOrder: true,
       },

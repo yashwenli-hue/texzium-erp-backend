@@ -20,6 +20,11 @@ import {
   InvoiceDocumentData,
   invoiceDocumentBlockers,
 } from './invoice-document';
+import {
+  ALL_RECORDS,
+  RecordScope,
+  salesInvoiceWhere,
+} from '../record-scope/record-scope';
 
 export const ALREADY_INVOICED_MESSAGE =
   'This Sales Order has already been invoiced. An order is invoiced once, for its full value; no invoice was created.';
@@ -334,8 +339,9 @@ export class SalesInvoicesService {
     return data;
   }
 
-  async findAll() {
+  async findAll(scope: RecordScope = ALL_RECORDS) {
     return this.prisma.salesInvoice.findMany({
+      where: salesInvoiceWhere(scope),
       include: {
         salesOrder: true,
         dispatchOrder: true,

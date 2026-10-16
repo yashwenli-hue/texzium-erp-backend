@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 
 import { PrismaService } from '../../../core/database/prisma.service';
 import { isProformaExpired } from '../proforma-invoices/proforma-lifecycle';
@@ -11,6 +12,12 @@ import {
   CUSTOMER_NOT_FOUND_MESSAGE,
 } from './customer-lifecycle';
 import { findLegacyMatches } from './customer-legacy-matches';
+import {
+  ALL_RECORDS,
+  RecordScope,
+  and,
+  opportunityWhere,
+} from '../record-scope/record-scope';
 
 const SALES_ORDER_CANCELLED = 'CANCELLED';
 const INVOICE_DRAFT = 'DRAFT';
@@ -33,7 +40,9 @@ const sum = (values: number[]) =>
 export class CustomerOverviewService {
   constructor(private prisma: PrismaService) {}
 
-  async get(id: string) {
+  // Scoped: only the opportunities (and so the documents under them) the caller may see;
+  // a colleague's deal with the same customer is not shown to a scoped user.
+  async get(id: string, scope: RecordScope = ALL_RECORDS) {
     const customer = await this.prisma.customer.findUnique({
       where: { id },
       include: CUSTOMER_INCLUDE,
@@ -44,7 +53,10 @@ export class CustomerOverviewService {
     }
 
     const opportunities = await this.prisma.opportunity.findMany({
-      where: { customerId: id },
+      where: and<Prisma.OpportunityWhereInput>(
+        { customerId: id },
+        opportunityWhere(scope),
+      ),
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       select: {
         id: true,

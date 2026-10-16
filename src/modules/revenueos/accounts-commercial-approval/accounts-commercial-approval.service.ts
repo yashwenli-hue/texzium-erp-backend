@@ -26,6 +26,11 @@ import {
   requireSalesOrder,
   retractSalesOrder,
 } from '../sales-orders/sales-order-lifecycle';
+import {
+  ALL_RECORDS,
+  RecordScope,
+  salesOrderChildWhere,
+} from '../record-scope/record-scope';
 
 @Injectable()
 export class AccountsCommercialApprovalService {
@@ -198,8 +203,9 @@ export class AccountsCommercialApprovalService {
     });
   }
 
-  async findAll() {
+  async findAll(scope: RecordScope = ALL_RECORDS) {
     return this.prisma.accountsCommercialApproval.findMany({
+      where: salesOrderChildWhere(scope),
       include: {
         salesOrder: true,
       },

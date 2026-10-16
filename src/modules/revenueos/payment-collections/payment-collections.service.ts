@@ -25,6 +25,12 @@ import {
   paymentConflict,
   toPaise,
 } from './payment-collection-values';
+import {
+  ALL_RECORDS,
+  RecordScope,
+  and,
+  paymentCollectionWhere,
+} from '../record-scope/record-scope';
 
 // The people shown on a collection or an event: only these fields ever leave the API.
 const ACTOR_SELECT = { id: true, fullName: true } satisfies Prisma.UserSelect;
@@ -363,7 +369,10 @@ export class PaymentCollectionsService {
   }
 
   // Newest payment first. Filters are all optional; the page is capped.
-  async findAll(query: ListPaymentCollectionsQueryDto = {}) {
+  async findAll(
+    query: ListPaymentCollectionsQueryDto = {},
+    scope: RecordScope = ALL_RECORDS,
+  ) {
     const where: Prisma.PaymentCollectionWhereInput = {};
 
     if (query.accountsReceivableId) {
@@ -382,7 +391,7 @@ export class PaymentCollectionsService {
     }
 
     return this.prisma.paymentCollection.findMany({
-      where,
+      where: and(where, paymentCollectionWhere(scope)),
       include: COLLECTION_INCLUDE,
       orderBy: [{ paymentDate: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
       take: query.limit ?? COLLECTIONS_LIST_DEFAULT_LIMIT,

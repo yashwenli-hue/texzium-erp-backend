@@ -28,6 +28,7 @@ import {
   assertLeadLocation,
   mergeLeadLocation,
 } from './lead-location';
+import { ALL_RECORDS, RecordScope, and, leadWhere } from '../record-scope/record-scope';
 
 // Tolerance for client/server clock skew when rejecting future-dated activity.
 const OCCURRED_AT_FUTURE_TOLERANCE_MS = 5 * 60 * 1000;
@@ -95,9 +96,9 @@ export class LeadsService {
     return lead;
   }
 
-  async findAll(includeInactive = false) {
+  async findAll(includeInactive = false, scope: RecordScope = ALL_RECORDS) {
     return this.prisma.lead.findMany({
-      where: includeInactive ? undefined : { isActive: true },
+      where: and<Prisma.LeadWhereInput>(includeInactive ? undefined : { isActive: true }, leadWhere(scope)),
       include: {
         source: true,
         assignedTo: { select: LEAD_ACTOR_SELECT },

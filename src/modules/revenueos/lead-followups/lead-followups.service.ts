@@ -10,6 +10,7 @@ import {
   lockActiveLeadForWrite,
   lockLeadForWrite,
 } from '../leads/lead-lifecycle';
+import { ALL_RECORDS, RecordScope, followupWhere } from '../record-scope/record-scope';
 
 @Injectable()
 export class LeadFollowupsService {
@@ -41,8 +42,9 @@ export class LeadFollowupsService {
     });
   }
 
-  async findAll() {
+  async findAll(scope: RecordScope = ALL_RECORDS) {
     return this.prisma.leadFollowup.findMany({
+      where: followupWhere(scope),
       include: {
         lead: true,
         completedBy: {

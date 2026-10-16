@@ -35,6 +35,11 @@ import {
   canCreateOpportunityFor,
   opportunityRefusal,
 } from '../lead-assignments/lead-transitions';
+import {
+  ALL_RECORDS,
+  RecordScope,
+  opportunityWhere,
+} from '../record-scope/record-scope';
 
 const CUSTOMER_INACTIVE_FOR_LINK =
   'This customer is inactive. Reactivate it before linking it to an opportunity.';
@@ -330,8 +335,9 @@ export class OpportunitiesService {
     });
   }
 
-  async findAll() {
+  async findAll(scope: RecordScope = ALL_RECORDS) {
     return this.prisma.opportunity.findMany({
+      where: opportunityWhere(scope),
       include: {
         lead: true,
         customer: { select: OPPORTUNITY_CUSTOMER_SELECT },

@@ -35,6 +35,11 @@ import {
   readQuotationStatusShared,
   totalsMatch,
 } from '../proforma-invoices/proforma-lifecycle';
+import {
+  ALL_RECORDS,
+  RecordScope,
+  salesOrderWhere,
+} from '../record-scope/record-scope';
 
 // A client-sent total may differ from the Proforma's by no more than a paisa
 // of floating-point noise.
@@ -331,8 +336,9 @@ export class SalesOrdersService {
   // ==========================================================
   // Get All Sales Orders
   // ==========================================================
-  async findAll() {
+  async findAll(scope: RecordScope = ALL_RECORDS) {
     return this.prisma.salesOrder.findMany({
+      where: salesOrderWhere(scope),
       include: {
         proformaInvoice: true,
       },

@@ -17,6 +17,11 @@ import {
   isProformaTransitionAllowed,
   totalsMatch,
 } from './proforma-lifecycle';
+import { RecordScopeGuard } from '../record-scope/record-scope.guard';
+
+// Who may see which record is tested on its own (record-scope.spec.ts and the
+// integration tests); here every caller may see every record.
+const SCOPE_TESTED_ELSEWHERE = { canActivate: () => true };
 
 const uid = (n: number) =>
   `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
@@ -343,6 +348,8 @@ describe('Proforma lifecycle over HTTP', () => {
           return true;
         },
       })
+      .overrideGuard(RecordScopeGuard)
+      .useValue(SCOPE_TESTED_ELSEWHERE)
       .compile();
 
     const instance = mod.createNestApplication();

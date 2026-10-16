@@ -34,6 +34,11 @@ import {
 } from './sales-order-lifecycle';
 import { SalesOrdersController } from './sales-orders.controller';
 import { SalesOrdersService } from './sales-orders.service';
+import { RecordScopeGuard } from '../record-scope/record-scope.guard';
+
+// Who may see which record is tested on its own (record-scope.spec.ts and the
+// integration tests); here every caller may see every record.
+const SCOPE_TESTED_ELSEWHERE = { canActivate: () => true };
 
 const uid = (n: number) =>
   `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
@@ -555,6 +560,8 @@ describe('Sales Order pre-dispatch lifecycle', () => {
           return true;
         },
       })
+      .overrideGuard(RecordScopeGuard)
+      .useValue(SCOPE_TESTED_ELSEWHERE)
       .compile();
 
     app = moduleRef.createNestApplication();
@@ -759,10 +766,14 @@ describe('Sales Order pre-dispatch lifecycle', () => {
     ];
 
     it.each(controllers.map((c) => [c.name, c]))(
-      '%s has JwtAuthGuard and PermissionsGuard',
+      '%s has JwtAuthGuard, PermissionsGuard and RecordScopeGuard',
       (_n, controller) => {
         const guards: any[] = Reflect.getMetadata('__guards__', controller);
-        expect(guards).toEqual([JwtAuthGuard, PermissionsGuard]);
+        expect(guards).toEqual([
+          JwtAuthGuard,
+          PermissionsGuard,
+          RecordScopeGuard,
+        ]);
       },
     );
 

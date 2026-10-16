@@ -35,6 +35,11 @@ import {
   gstinMatchesPan,
   gstinState,
 } from './customer-gst-values';
+import {
+  ALL_RECORDS,
+  RecordScope,
+  gstRegistrationWhere,
+} from '../record-scope/record-scope';
 
 type Tx = Prisma.TransactionClient;
 
@@ -175,8 +180,9 @@ export class CustomerGstService {
     }
   }
 
-  async findAll() {
+  async findAll(scope: RecordScope = ALL_RECORDS) {
     return this.prisma.customerGSTRegistration.findMany({
+      where: gstRegistrationWhere(scope),
       include: { customer: { select: GST_CUSTOMER_SELECT } },
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
     });

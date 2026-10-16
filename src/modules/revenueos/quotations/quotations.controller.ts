@@ -26,15 +26,21 @@ import { renderDocumentPdf } from '../../../core/documents/document-renderer';
 import { pdfAttachment } from '../../../core/documents/document-response';
 import { safeFileName } from '../../../core/documents/document-text';
 import { quotationDocument } from './quotation-document';
+import {
+  RecordScopeGuard,
+  ScopedRecord,
+} from '../record-scope/record-scope.guard';
+import { scopeOf } from '../record-scope/record-scope';
 
 type AuthenticatedRequest = { user?: { id?: string } };
 
 @Controller('quotations')
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, RecordScopeGuard)
 export class QuotationsController {
   constructor(private readonly quotationsService: QuotationsService) {}
 
   @Post()
+  @ScopedRecord('opportunity', 'body.opportunityId')
   @Permissions('quotations.create')
   create(@Body() body: CreateQuotationDto, @Req() req: AuthenticatedRequest) {
     return this.quotationsService.create(body, req.user?.id);
@@ -42,12 +48,13 @@ export class QuotationsController {
 
   @Get()
   @Permissions('quotations.view')
-  findAll() {
-    return this.quotationsService.findAll();
+  findAll(@Req() req: { user?: { id?: string; permissions?: unknown } }) {
+    return this.quotationsService.findAll(scopeOf(req.user));
   }
 
   // The quotation as a PDF, built in memory (quotations.view).
   @Get(':id/document.pdf')
+  @ScopedRecord('quotation', 'params.id')
   @Permissions('quotations.view')
   async document(
     @Param('id', new ParseUUIDPipe()) id: string,
@@ -66,6 +73,7 @@ export class QuotationsController {
   }
 
   @Get(':id/events')
+  @ScopedRecord('quotation', 'params.id')
   @Permissions('quotations.view')
   findEvents(@Param('id') id: string) {
     return this.quotationsService.findEvents(id);
@@ -74,6 +82,7 @@ export class QuotationsController {
   // Revises the taxable amount; the backend recomputes GST and the total. The
   // actor is the signed-in user.
   @Patch(':id/revise')
+  @ScopedRecord('quotation', 'params.id')
   @Permissions('quotations.edit')
   revise(
     @Param('id') id: string,
@@ -84,6 +93,7 @@ export class QuotationsController {
   }
 
   @Patch(':id/approve')
+  @ScopedRecord('quotation', 'params.id')
   @Permissions('quotations.approve')
   approve(
     @Param('id') id: string,
@@ -94,6 +104,7 @@ export class QuotationsController {
   }
 
   @Patch(':id/reject')
+  @ScopedRecord('quotation', 'params.id')
   @Permissions('quotations.reject')
   reject(
     @Param('id') id: string,

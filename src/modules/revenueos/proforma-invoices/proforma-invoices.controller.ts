@@ -24,17 +24,23 @@ import { renderDocumentPdf } from '../../../core/documents/document-renderer';
 import { pdfAttachment } from '../../../core/documents/document-response';
 import { safeFileName } from '../../../core/documents/document-text';
 import { proformaDocument } from './proforma-document';
+import {
+  RecordScopeGuard,
+  ScopedRecord,
+} from '../record-scope/record-scope.guard';
+import { scopeOf } from '../record-scope/record-scope';
 
 type AuthenticatedRequest = { user?: { id?: string } };
 
 @Controller('proforma-invoices')
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, RecordScopeGuard)
 export class ProformaInvoicesController {
   constructor(
     private readonly proformaInvoicesService: ProformaInvoicesService,
   ) {}
 
   @Post()
+  @ScopedRecord('quotation', 'body.quotationId')
   @Permissions('proformas.create')
   create(
     @Body() body: CreateProformaInvoiceDto,
@@ -45,12 +51,13 @@ export class ProformaInvoicesController {
 
   @Get()
   @Permissions('proformas.view')
-  findAll() {
-    return this.proformaInvoicesService.findAll();
+  findAll(@Req() req: { user?: { id?: string; permissions?: unknown } }) {
+    return this.proformaInvoicesService.findAll(scopeOf(req.user));
   }
 
   // The Proforma Invoice as a PDF, built in memory (proformas.view).
   @Get(':id/document.pdf')
+  @ScopedRecord('proforma', 'params.id')
   @Permissions('proformas.view')
   async document(
     @Param('id', new ParseUUIDPipe()) id: string,
@@ -69,6 +76,7 @@ export class ProformaInvoicesController {
   }
 
   @Get(':id/events')
+  @ScopedRecord('proforma', 'params.id')
   @Permissions('proformas.view')
   findEvents(@Param('id') id: string) {
     return this.proformaInvoicesService.findEvents(id);
@@ -76,6 +84,7 @@ export class ProformaInvoicesController {
 
   // The actor is the signed-in user.
   @Patch(':id/approve')
+  @ScopedRecord('proforma', 'params.id')
   @Permissions('proformas.approve')
   approve(
     @Param('id') id: string,
@@ -86,6 +95,7 @@ export class ProformaInvoicesController {
   }
 
   @Patch(':id/cancel')
+  @ScopedRecord('proforma', 'params.id')
   @Permissions('proformas.cancel')
   cancel(
     @Param('id') id: string,

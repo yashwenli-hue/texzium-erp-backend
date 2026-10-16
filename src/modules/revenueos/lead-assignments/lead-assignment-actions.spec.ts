@@ -12,6 +12,11 @@ import { LEAD_DEACTIVATED_MESSAGE } from '../leads/lead-lifecycle';
 import { LEAD_REJECT_REASON_MAX_LENGTH } from './dto/reject-lead.dto';
 import { LeadAssignmentsController } from './lead-assignments.controller';
 import { LeadAssignmentsModule } from './lead-assignments.module';
+import { RecordScopeGuard } from '../record-scope/record-scope.guard';
+
+// Who may see which record is tested on its own (record-scope.spec.ts and the
+// integration tests); here every caller may see every record.
+const SCOPE_TESTED_ELSEWHERE = { canActivate: () => true };
 
 // POST /lead-assignments, PATCH /lead-assignments/:id/qualify and /:id/reject through
 // real HTTP: the real global JwtAuthGuard and JWT strategy, PermissionsGuard,
@@ -46,9 +51,22 @@ type Status = (typeof STATUSES)[number];
 
 // The agreed matrix: which statuses each action may start from.
 const ALLOWED: Record<'assign' | 'qualify' | 'reject', Status[]> = {
-  assign: ['NEW', 'ASSIGNED', 'CONTACTED', 'PRE_SALES_ASSIGNED', 'UNDERQUALIFIED'],
+  assign: [
+    'NEW',
+    'ASSIGNED',
+    'CONTACTED',
+    'PRE_SALES_ASSIGNED',
+    'UNDERQUALIFIED',
+  ],
   // QUALIFIED without a hand-off to sales can still be handed over (it was stuck before).
-  qualify: ['NEW', 'ASSIGNED', 'CONTACTED', 'PRE_SALES_ASSIGNED', 'UNDERQUALIFIED', 'QUALIFIED'],
+  qualify: [
+    'NEW',
+    'ASSIGNED',
+    'CONTACTED',
+    'PRE_SALES_ASSIGNED',
+    'UNDERQUALIFIED',
+    'QUALIFIED',
+  ],
   reject: [
     'NEW',
     'ASSIGNED',
@@ -148,6 +166,8 @@ describe('Lead assign / qualify / reject', () => {
     })
       .overrideProvider(PrismaService)
       .useValue(db)
+      .overrideGuard(RecordScopeGuard)
+      .useValue(SCOPE_TESTED_ELSEWHERE)
       .compile();
 
     app = moduleRef.createNestApplication({ logger: false });

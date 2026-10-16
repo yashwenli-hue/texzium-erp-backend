@@ -16,9 +16,14 @@ import { RetractAccountsCommercialApprovalDto } from './dto/retract-accounts-com
 import { JwtAuthGuard } from '../../../core/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../../core/guards/permissions.guard';
 import { Permissions } from '../../../core/decorators/permissions.decorator';
+import {
+  RecordScopeGuard,
+  ScopedRecord,
+} from '../record-scope/record-scope.guard';
+import { scopeOf } from '../record-scope/record-scope';
 
 @Controller('accounts-commercial-approval')
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, RecordScopeGuard)
 export class AccountsCommercialApprovalController {
   constructor(
     private readonly accountsCommercialApprovalService: AccountsCommercialApprovalService,
@@ -26,6 +31,7 @@ export class AccountsCommercialApprovalController {
 
   // The approver is the signed-in user; it is never taken from the request body.
   @Post('create')
+  @ScopedRecord('salesOrder', 'body.salesOrderId')
   @Permissions('salesorders.commercialapproval.approve')
   create(
     @Body() data: CreateAccountsCommercialApprovalDto,
@@ -36,6 +42,7 @@ export class AccountsCommercialApprovalController {
 
   // Undoes an approval. The actor is the signed-in user.
   @Post(':id/retract')
+  @ScopedRecord('commercialApproval', 'params.id')
   @HttpCode(HttpStatus.OK)
   @Permissions('salesorders.commercialapproval.retract')
   retract(
@@ -52,7 +59,7 @@ export class AccountsCommercialApprovalController {
 
   @Get()
   @Permissions('salesorders.commercialapproval.view')
-  findAll() {
-    return this.accountsCommercialApprovalService.findAll();
+  findAll(@Req() req: { user?: { id?: string; permissions?: unknown } }) {
+    return this.accountsCommercialApprovalService.findAll(scopeOf(req.user));
   }
 }

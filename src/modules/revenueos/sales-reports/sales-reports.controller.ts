@@ -1,7 +1,15 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, UseGuards } from '@nestjs/common';
+import { JwtAuthGuard } from '../../../core/guards/jwt-auth.guard';
+import { PermissionsGuard } from '../../../core/guards/permissions.guard';
+import { Permissions } from '../../../core/decorators/permissions.decorator';
+import { VIEW_ALL_PERMISSION } from '../record-scope/record-scope';
 import { SalesReportsService } from './sales-reports.service';
 
+// Company-wide figures (every customer, every salesperson): only for people who may see
+// every record (revenue.view.all). They cannot be cut down to one person's scope.
 @Controller('sales-reports')
+@UseGuards(JwtAuthGuard, PermissionsGuard)
+@Permissions(VIEW_ALL_PERMISSION)
 export class SalesReportsController {
   constructor(
     private readonly salesReportsService: SalesReportsService,

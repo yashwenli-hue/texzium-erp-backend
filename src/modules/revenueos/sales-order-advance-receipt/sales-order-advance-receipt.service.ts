@@ -30,6 +30,11 @@ import {
   requireSalesOrder,
   retractSalesOrder,
 } from '../sales-orders/sales-order-lifecycle';
+import {
+  ALL_RECORDS,
+  RecordScope,
+  salesOrderChildWhere,
+} from '../record-scope/record-scope';
 
 @Injectable()
 export class SalesOrderAdvanceReceiptService {
@@ -61,8 +66,9 @@ export class SalesOrderAdvanceReceiptService {
     });
   }
 
-  async findAll() {
+  async findAll(scope: RecordScope = ALL_RECORDS) {
     return this.prisma.salesOrderAdvanceReceipt.findMany({
+      where: salesOrderChildWhere(scope),
       include: {
         salesOrder: true,
       },

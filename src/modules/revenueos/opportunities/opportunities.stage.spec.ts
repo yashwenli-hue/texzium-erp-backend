@@ -13,6 +13,11 @@ import {
   OPPORTUNITY_STAGE_TRANSITIONS,
   OpportunityStage,
 } from './opportunity-stage';
+import { RecordScopeGuard } from '../record-scope/record-scope.guard';
+
+// Who may see which record is tested on its own (record-scope.spec.ts and the
+// integration tests); here every caller may see every record.
+const SCOPE_TESTED_ELSEWHERE = { canActivate: () => true };
 
 const LEAD_ID = '11111111-1111-4111-8111-111111111111';
 const INACTIVE_LEAD_ID = '22222222-2222-4222-8222-222222222222';
@@ -126,6 +131,8 @@ describe('Opportunity stage', () => {
           return true;
         },
       })
+      .overrideGuard(RecordScopeGuard)
+      .useValue(SCOPE_TESTED_ELSEWHERE)
       .compile();
 
     app = moduleRef.createNestApplication();

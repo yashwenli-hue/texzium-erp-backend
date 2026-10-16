@@ -9,6 +9,11 @@ import { OpportunitiesController } from '../opportunities/opportunities.controll
 import { OpportunitiesService } from '../opportunities/opportunities.service';
 import { LeadsController } from './leads.controller';
 import { LeadsService } from './leads.service';
+import { RecordScopeGuard } from '../record-scope/record-scope.guard';
+
+// Who may see which record is tested on its own (record-scope.spec.ts and the
+// integration tests); here every caller may see every record.
+const SCOPE_TESTED_ELSEWHERE = { canActivate: () => true };
 
 const PERMISSIONS = ['leads.edit', 'leads.view', 'opportunities.view'];
 
@@ -79,6 +84,8 @@ describe('Lead activity (attributed employee history on LeadTimeline)', () => {
           return true;
         },
       })
+      .overrideGuard(RecordScopeGuard)
+      .useValue(SCOPE_TESTED_ELSEWHERE)
       .compile();
 
     app = moduleRef.createNestApplication();

@@ -21,9 +21,11 @@ import { ListLeadsQueryDto } from './dto/list-leads-query.dto';
 import { JwtAuthGuard } from '../../../core/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../../core/guards/permissions.guard';
 import { Permissions } from '../../../core/decorators/permissions.decorator';
+import { RecordScopeGuard, ScopedRecord } from '../record-scope/record-scope.guard';
+import { scopeOf } from '../record-scope/record-scope';
 
 @Controller('leads')
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, RecordScopeGuard)
 export class LeadsController {
   constructor(
     private readonly leadsService: LeadsService,
@@ -40,17 +42,22 @@ export class LeadsController {
 
   @Get()
   @Permissions('leads.view')
-  findAll(@Query() query: ListLeadsQueryDto) {
-    return this.leadsService.findAll(query.includeInactive);
+  findAll(
+    @Query() query: ListLeadsQueryDto,
+    @Req() req: { user?: { id?: string; permissions?: unknown } },
+  ) {
+    return this.leadsService.findAll(query.includeInactive, scopeOf(req.user));
   }
 
   @Get(':id')
+  @ScopedRecord('lead', 'params.id')
   @Permissions('leads.view')
   findOne(@Param('id') id: string) {
     return this.leadsService.findOne(id);
   }
 
   @Post(':id/activities')
+  @ScopedRecord('lead', 'params.id')
   @Permissions('leads.edit')
   createActivity(
     @Param('id') id: string,
@@ -67,6 +74,7 @@ export class LeadsController {
   // Takes a lead out of active work (reason required). One permission covers
   // both deactivating and reactivating.
   @Patch(':id/deactivate')
+  @ScopedRecord('lead', 'params.id')
   @Permissions('leads.deactivate')
   deactivate(
     @Param('id') id: string,
@@ -81,6 +89,7 @@ export class LeadsController {
   }
 
   @Patch(':id/reactivate')
+  @ScopedRecord('lead', 'params.id')
   @Permissions('leads.deactivate')
   reactivate(
     @Param('id') id: string,
@@ -90,6 +99,7 @@ export class LeadsController {
   }
 
   @Patch(':id')
+  @ScopedRecord('lead', 'params.id')
   @Permissions('leads.edit')
   update(
     @Param('id') id: string,

@@ -8,6 +8,7 @@ import {
   Res,
   StreamableFile,
   UseGuards,
+  Req,
 } from '@nestjs/common';
 import type { Response } from 'express';
 
@@ -20,15 +21,21 @@ import { renderDocumentPdf } from '../../../core/documents/document-renderer';
 import { pdfAttachment } from '../../../core/documents/document-response';
 import { safeFileName } from '../../../core/documents/document-text';
 import { invoiceDocument } from './invoice-document';
+import {
+  RecordScopeGuard,
+  ScopedRecord,
+} from '../record-scope/record-scope.guard';
+import { scopeOf } from '../record-scope/record-scope';
 
 // Issuing an invoice needs invoices.create; reading invoices needs
 // invoices.view (both were open to any signed-in user before).
 @Controller('sales-invoices')
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, RecordScopeGuard)
 export class SalesInvoicesController {
   constructor(private readonly salesInvoicesService: SalesInvoicesService) {}
 
   @Post()
+  @ScopedRecord('salesOrder', 'body.salesOrderId')
   @Permissions('invoices.create')
   create(@Body() body: CreateSalesInvoiceDto) {
     return this.salesInvoicesService.create(body);
@@ -36,8 +43,8 @@ export class SalesInvoicesController {
 
   @Get()
   @Permissions('invoices.view')
-  findAll() {
-    return this.salesInvoicesService.findAll();
+  findAll(@Req() req: { user?: { id?: string; permissions?: unknown } }) {
+    return this.salesInvoicesService.findAll(scopeOf(req.user));
   }
 
   // The tax invoice as a PDF, built in memory. Needs invoices.view AND
@@ -47,6 +54,7 @@ export class SalesInvoicesController {
   // 20261016_tax_invoice_document_permission.sql). Refused (409) for an
   // invoice that lacks what a tax invoice must carry.
   @Get(':id/document.pdf')
+  @ScopedRecord('salesInvoice', 'params.id')
   @Permissions('invoices.view', 'invoices.document.view')
   async document(
     @Param('id', new ParseUUIDPipe()) id: string,

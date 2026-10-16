@@ -11,6 +11,11 @@ import { JwtAuthGuard } from '../../../core/guards/jwt-auth.guard';
 import { OpportunitiesController } from './opportunities.controller';
 import { OpportunitiesService } from './opportunities.service';
 import { OPPORTUNITY_STAGE_REMARK_MAX_LENGTH } from './opportunity-stage';
+import { RecordScopeGuard } from '../record-scope/record-scope.guard';
+
+// Who may see which record is tested on its own (record-scope.spec.ts and the
+// integration tests); here every caller may see every record.
+const SCOPE_TESTED_ELSEWHERE = { canActivate: () => true };
 
 const LEAD_ID = '11111111-1111-4111-8111-111111111111';
 const OPP_ID = 'opp-1';
@@ -94,6 +99,8 @@ describe('Opportunity stage remark', () => {
           return true;
         },
       })
+      .overrideGuard(RecordScopeGuard)
+      .useValue(SCOPE_TESTED_ELSEWHERE)
       .compile();
 
     app = moduleRef.createNestApplication();
@@ -332,9 +339,13 @@ describe('Opportunity stage remark', () => {
       const assignments = src(
         'modules/revenueos/lead-assignments/lead-assignments.service.ts',
       );
-      const methods = ['assign', 'qualifyLead', 'rejectLead', 'unassign', 'reopen'].map(
-        (name) => assignments.indexOf(`async ${name}(`),
-      );
+      const methods = [
+        'assign',
+        'qualifyLead',
+        'rejectLead',
+        'unassign',
+        'reopen',
+      ].map((name) => assignments.indexOf(`async ${name}(`));
       methods.forEach((at) => expect(at).toBeGreaterThan(-1));
       expect([...methods].sort((a, b) => a - b)).toEqual(methods);
       const remarkWriters = [...assignments.matchAll(/userRemark/g)].map(

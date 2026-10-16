@@ -7,6 +7,11 @@ import { JwtAuthGuard } from '../../../core/guards/jwt-auth.guard';
 import { DataDeletionService } from '../data-governance/data-deletion.service';
 import { CUSTOMER_DELETION_POLICY } from './customer-deletion.policy';
 import { CustomerDeletionController } from './customer-deletion.controller';
+import { RecordScopeGuard } from '../record-scope/record-scope.guard';
+
+// Who may see which record is tested on its own (record-scope.spec.ts and the
+// integration tests); here every caller may see every record.
+const SCOPE_TESTED_ELSEWHERE = { canActivate: () => true };
 
 const ID = '00000000-0000-4000-8000-0000000000a1';
 
@@ -30,6 +35,8 @@ describe('customer deletion routes', () => {
           return true;
         },
       })
+      .overrideGuard(RecordScopeGuard)
+      .useValue(SCOPE_TESTED_ELSEWHERE)
       .compile();
     app = moduleRef.createNestApplication();
     app.useGlobalPipes(
