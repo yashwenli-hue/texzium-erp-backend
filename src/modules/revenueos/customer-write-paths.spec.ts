@@ -84,9 +84,9 @@ describe('Customer write paths', () => {
     expect(text).not.toMatch(/DELETE\s+FROM/i);
   });
 
-  it('only the GST registration service (and governed deletion / restore) writes a registration', () => {
+  it('only the GST registration service, customer creation (the first registration of a new customer, in the same transaction) and governed deletion / restore write a registration', () => {
     expect(writersOf(WRITES_A_REGISTRATION)).toEqual(
-      [GST_SERVICE, CUSTOMER_DELETION].sort(),
+      [GST_SERVICE, CUSTOMER_SERVICE, CUSTOMER_DELETION].sort(),
     );
   });
 

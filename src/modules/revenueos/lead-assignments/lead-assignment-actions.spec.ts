@@ -40,6 +40,7 @@ const STATUSES = [
   'WON',
   'LOST',
   'REJECTED',
+  'UNDERQUALIFIED',
 ] as const;
 type Status = (typeof STATUSES)[number];
 

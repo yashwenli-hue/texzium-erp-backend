@@ -1,6 +1,7 @@
-import { Transform } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   IsEmail,
+  ValidateNested,
   IsNotEmpty,
   IsOptional,
   IsString,
@@ -15,6 +16,7 @@ import {
   PAN_PATTERN,
   PHONE_PATTERN,
 } from '../customer-values';
+import { GstRegistrationFieldsDto } from '../../customer-gst/dto/create-customer-gst.dto';
 
 // Trims a string; a blank optional field is "not supplied".
 const optionalText = ({ value }: { value: unknown }) => {
@@ -79,4 +81,13 @@ export class CreateCustomerDto {
     message: 'phone must be a valid phone number (7 to 20 digits)',
   })
   phone?: string;
+
+  // The customer's first GST registration, created in the same transaction: either both
+  // are created or neither is (a GSTIN already registered elsewhere refuses the whole
+  // request, so no customer is left without the registration it was made for). It
+  // becomes the customer's default registration.
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => GstRegistrationFieldsDto)
+  gstRegistration?: GstRegistrationFieldsDto;
 }

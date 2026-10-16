@@ -249,8 +249,8 @@ function makeDb() {
       }
 
       if (sql.includes('customer:matches')) {
-        // pan x2, name x2, phone x3, email x2, exclude x2
-        const [pan, , name, , phone, , , email, , exclude] = v;
+        // gstin x2, pan x3, name x2, phone x3, email x2, exclude x2
+        const [gstin, , pan, , , name, , phone, , , email, , exclude] = v;
         return state.customers
           .filter((c) => c.id !== exclude)
           .map((c) => ({
@@ -258,6 +258,8 @@ function makeDb() {
             customerCode: c.customerCode,
             customerName: c.customerName,
             isActive: c.isActive,
+            // registrations are not modelled here: a GSTIN matches nothing
+            gstinMatch: gstin !== null && false,
             panMatch:
               pan !== null &&
               panKey(c.panNumber) !== null &&
@@ -905,6 +907,7 @@ describe('Customer master over HTTP', () => {
           customerName: 'Raj Traders',
           isActive: true,
           reasons: ['NAME'],
+          strength: 'STRONG',
         },
       ]);
       expect(res.body.warnings).toEqual([
@@ -914,6 +917,7 @@ describe('Customer master over HTTP', () => {
           customerName: 'Beta Industries',
           isActive: true,
           reasons: ['PHONE', 'EMAIL'],
+          strength: 'POSSIBLE',
         },
       ]);
     });

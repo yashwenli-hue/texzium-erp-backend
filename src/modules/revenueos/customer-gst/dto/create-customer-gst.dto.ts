@@ -32,14 +32,13 @@ const optionalText = ({ value }: { value: unknown }) => {
 const upper = ({ value }: { value: unknown }) =>
   typeof value === 'string' ? value.trim().toUpperCase() : value;
 
-// POST /customer-gst
+// The details of a GST registration, without the customer it belongs to: the body of
+// POST /customer-gst (below), and the optional first registration sent with a new
+// customer in POST /customers.
 //
 // The state is not accepted: the server reads it from the GSTIN. Neither are
 // the active flag (a new registration is active) nor an id.
-export class CreateCustomerGstDto {
-  @IsUUID()
-  customerId: string;
-
+export class GstRegistrationFieldsDto {
   @Transform(upper)
   @IsString()
   @Matches(GSTIN_PATTERN, {
@@ -89,6 +88,12 @@ export class CreateCustomerGstDto {
     message: 'pincode must be a 6 digit PIN code',
   })
   pincode: string;
+}
+
+// POST /customer-gst
+export class CreateCustomerGstDto extends GstRegistrationFieldsDto {
+  @IsUUID()
+  customerId: string;
 
   // Make this the customer's default registration. The first registration of a
   // customer is its default whatever is sent.

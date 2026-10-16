@@ -14,7 +14,7 @@ const optionalText = ({ value }: { value: unknown }) => {
   return trimmed === '' ? undefined : trimmed;
 };
 
-// GET /customers/duplicate-check?customerName=&panNumber=&phone=&email=
+// GET /customers/duplicate-check?customerName=&panNumber=&phone=&email=&gstin=
 //
 // Lenient on purpose: this is asked while a person is still typing, so a half
 // typed PAN or phone number is a valid question and simply matches nothing.
@@ -43,6 +43,16 @@ export class CustomerDuplicateCheckQueryDto {
   @IsString()
   @MaxLength(CUSTOMER_EMAIL_MAX_LENGTH)
   email?: string;
+
+  // Spaces, dots, hyphens and slashes are ignored and letters are compared in capitals;
+  // only a complete GSTIN is compared (a half-typed one matches nothing).
+  @IsOptional()
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.replace(/[\s./-]+/g, '').toUpperCase() || undefined : value,
+  )
+  @IsString()
+  @MaxLength(20)
+  gstin?: string;
 
   // The customer being edited, so it is not reported as its own duplicate.
   @IsOptional()

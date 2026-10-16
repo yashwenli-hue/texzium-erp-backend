@@ -24,18 +24,29 @@ import {
   conflictCustomerInactive,
   conflictPanMismatchesGst,
   conflictDuplicatePan,
+  conflictDuplicateCustomerGstin,
   findCustomerMatches,
   isUniqueViolation,
   lockCustomer,
   lockCustomerName,
   matchReasons,
+  matchStrength,
   recordCustomerEvent,
   requireCustomer,
   requireCustomerActor,
   takeCustomerCodeNumber,
   CustomerMatch,
 } from './customer-lifecycle';
-import { gstinMatchesPan } from '../customer-gst/customer-gst-values';
+import {
+  GSTIN_PATTERN,
+  gstinMatchesPan,
+  gstinState,
+} from '../customer-gst/customer-gst-values';
+import {
+  GST_STATUS,
+  badRequestInvalidState,
+  badRequestPanMismatch,
+} from '../customer-gst/customer-gst-lifecycle';
 import {
   CUSTOMER_EDITABLE_FIELDS,
   CustomerEditableField,
@@ -77,14 +88,37 @@ export class CustomerMasterService {
           throw conflictDuplicatePan();
         }
 
+        // ... and for a GSTIN registered by a request that overlapped this one.
+        if (isUniqueViolation(error, 'gstin')) {
+          throw conflictDuplicateCustomerGstin();
+        }
+
         throw error;
       }
     }
   }
 
   private createOnce(data: CreateCustomerDto, actorId: string) {
+    const gst = data.gstRegistration;
+
+    // The first registration is checked before anything is written.
+    const state = gst ? gstinState(gst.gstin) : null;
+    if (gst && !state) throw badRequestInvalidState(gst.gstin);
+    if (gst && !gstinMatchesPan(gst.gstin, data.panNumber ?? null)) {
+      throw badRequestPanMismatch(gst.gstin, data.panNumber!);
+    }
+
     return this.prisma.$transaction(async (tx) => {
       await lockCustomerName(tx, data.customerName);
+
+      // Two creations with the same GSTIN run one after the other, so the second sees
+      // the first (the unique index on the GSTIN is the backstop).
+      if (gst) {
+        await tx.$executeRaw`
+          /* customer:gstin-lock */
+          SELECT pg_advisory_xact_lock(hashtext('customer-gstin:' || ${gst.gstin}::text))
+        `;
+      }
 
       assertNoBlockingDuplicate(
         await findCustomerMatches(tx, {
@@ -92,6 +126,7 @@ export class CustomerMasterService {
           pan: data.panNumber ?? null,
           phone: null,
           email: null,
+          gstin: gst?.gstin ?? null,
         }),
       );
 
@@ -115,7 +150,39 @@ export class CustomerMasterService {
         occurredAt: customer.createdAt,
       });
 
-      return customer;
+      if (!gst || !state) return customer;
+
+      const registration = await tx.customerGSTRegistration.create({
+        data: {
+          customerId: customer.id,
+          gstin: gst.gstin,
+          legalName: gst.legalName,
+          tradeName: gst.tradeName,
+          branchName: gst.branchName,
+          stateCode: state.stateCode,
+          stateName: state.stateName,
+          addressLine1: gst.addressLine1,
+          addressLine2: gst.addressLine2,
+          city: gst.city,
+          pincode: gst.pincode,
+          isDefault: true,
+          isActive: true,
+        },
+      });
+
+      await recordCustomerEvent(tx, {
+        customerId: customer.id,
+        action: CUSTOMER_EVENT_ACTION.GST_ADDED,
+        toStatus: GST_STATUS.ACTIVE,
+        gstRegistrationId: registration.id,
+        actorId,
+        occurredAt: registration.createdAt,
+      });
+
+      return tx.customer.findUniqueOrThrow({
+        where: { id: customer.id },
+        include: CUSTOMER_INCLUDE,
+      });
     });
   }
 
@@ -160,10 +227,14 @@ export class CustomerMasterService {
   // only warn. Nothing is written.
   async duplicateCheck(query: CustomerDuplicateCheckQueryDto) {
     const { customerName, panNumber, phone, email } = query;
+    // Only a complete GSTIN is compared: a half-typed one is a valid question that
+    // matches nothing.
+    const gstin =
+      query.gstin && GSTIN_PATTERN.test(query.gstin) ? query.gstin : null;
 
-    if (!customerName && !panNumber && !phone && !email) {
+    if (!customerName && !panNumber && !phone && !email && !query.gstin) {
       throw new BadRequestException(
-        'Give at least one of customerName, panNumber, phone or email.',
+        'Give at least one of customerName, panNumber, phone, email or gstin.',
       );
     }
 
@@ -172,6 +243,7 @@ export class CustomerMasterService {
       pan: panNumber ? normalizePan(panNumber) : null,
       phone: phone ?? null,
       email: email ? normalizeEmail(email) : null,
+      gstin,
       excludeId: query.excludeCustomerId ?? null,
     });
 
@@ -181,11 +253,14 @@ export class CustomerMasterService {
       customerName: m.customerName,
       isActive: m.isActive,
       reasons: matchReasons(m),
+      strength: matchStrength(m),
     });
 
+    const blocks = (m: CustomerMatch) => m.gstinMatch || m.panMatch || m.nameMatch;
+
     return {
-      blocking: matches.filter((m) => m.panMatch || m.nameMatch).map(present),
-      warnings: matches.filter((m) => !m.panMatch && !m.nameMatch).map(present),
+      blocking: matches.filter(blocks).map(present),
+      warnings: matches.filter((m) => !blocks(m)).map(present),
     };
   }
 

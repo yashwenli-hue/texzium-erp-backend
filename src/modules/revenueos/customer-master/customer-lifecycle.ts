@@ -221,23 +221,34 @@ export async function lockCustomerName(tx: Tx, name: string): Promise<void> {
   `;
 }
 
-export type CustomerMatchReason = 'PAN' | 'NAME' | 'PHONE' | 'EMAIL';
+export type CustomerMatchReason = 'GSTIN' | 'PAN' | 'NAME' | 'PHONE' | 'EMAIL';
+
+// How sure a match is: EXACT is the same GSTIN (the same registration), STRONG the same
+// PAN or the same name (what create and edit refuse), POSSIBLE a shared phone number or
+// email (businesses legitimately share them, so they only warn).
+export type CustomerMatchStrength = 'EXACT' | 'STRONG' | 'POSSIBLE';
 
 export type CustomerMatch = {
   id: string;
   customerCode: string;
   customerName: string;
   isActive: boolean;
+  gstinMatch: boolean;
   panMatch: boolean;
   nameMatch: boolean;
   phoneMatch: boolean;
   emailMatch: boolean;
 };
 
-// Customers that look like the one described. PAN and name are blocking
+// Customers that look like the one described. GSTIN, PAN and name are blocking
 // matches, phone and email only warn. Each field is compared the way
 // customer-values.ts describes; a field that is null is not compared.
 // `excludeId` leaves one customer out (the one being edited).
+//
+// A GSTIN matches the customer that has that registration (active or not). A PAN
+// matches a customer's own PAN and the PAN inside any of its GSTINs (characters 3 to
+// 12), so a business recorded without a PAN is still found. A GSTIN given without a
+// PAN is also compared by the PAN it carries.
 export async function findCustomerMatches(
   db: Pick<Tx, '$queryRaw'>,
   probe: {
@@ -245,10 +256,13 @@ export async function findCustomerMatches(
     pan: string | null;
     phone: string | null;
     email: string | null;
+    gstin?: string | null;
     excludeId?: string | null;
   },
 ): Promise<CustomerMatch[]> {
-  const { name, pan, phone, email } = probe;
+  const { name, phone, email } = probe;
+  const gstin = probe.gstin ?? null;
+  const pan = probe.pan ?? (gstin ? gstin.slice(2, 12) : null);
   const excludeId = probe.excludeId ?? null;
 
   return db.$queryRaw<CustomerMatch[]>`
@@ -259,10 +273,15 @@ export async function findCustomerMatches(
         c."customerCode",
         c."customerName",
         c."isActive",
+        (${gstin}::text IS NOT NULL
+          AND EXISTS (SELECT 1 FROM "CustomerGSTRegistration" g
+                      WHERE g."customerId" = c."id" AND g."gstin" = upper(btrim(${gstin}::text)))) AS "gstinMatch",
         (${pan}::text IS NOT NULL
-          AND c."panNumber" IS NOT NULL
-          AND btrim(c."panNumber") <> ''
-          AND upper(btrim(c."panNumber")) = upper(btrim(${pan}::text))) AS "panMatch",
+          AND ((c."panNumber" IS NOT NULL
+                AND btrim(c."panNumber") <> ''
+                AND upper(btrim(c."panNumber")) = upper(btrim(${pan}::text)))
+            OR EXISTS (SELECT 1 FROM "CustomerGSTRegistration" g
+                       WHERE g."customerId" = c."id" AND substr(g."gstin", 3, 10) = upper(btrim(${pan}::text))))) AS "panMatch",
         (${name}::text IS NOT NULL
           AND lower(regexp_replace(btrim(c."customerName"), '[[:space:]]+', ' ', 'g'))
             = lower(regexp_replace(btrim(${name}::text), '[[:space:]]+', ' ', 'g'))) AS "nameMatch",
@@ -278,14 +297,21 @@ export async function findCustomerMatches(
       FROM "Customer" c
       WHERE (${excludeId}::text IS NULL OR c."id" <> ${excludeId}::text)
     ) m
-    WHERE m."panMatch" OR m."nameMatch" OR m."phoneMatch" OR m."emailMatch"
-    ORDER BY m."panMatch" DESC, m."nameMatch" DESC, m."customerCode" ASC
+    WHERE m."gstinMatch" OR m."panMatch" OR m."nameMatch" OR m."phoneMatch" OR m."emailMatch"
+    ORDER BY m."gstinMatch" DESC, m."panMatch" DESC, m."nameMatch" DESC, m."customerCode" ASC
   `;
+}
+
+export function matchStrength(match: CustomerMatch): CustomerMatchStrength {
+  if (match.gstinMatch) return 'EXACT';
+  if (match.panMatch || match.nameMatch) return 'STRONG';
+  return 'POSSIBLE';
 }
 
 export function matchReasons(match: CustomerMatch): CustomerMatchReason[] {
   const reasons: CustomerMatchReason[] = [];
 
+  if (match.gstinMatch) reasons.push('GSTIN');
   if (match.panMatch) reasons.push('PAN');
   if (match.nameMatch) reasons.push('NAME');
   if (match.phoneMatch) reasons.push('PHONE');
@@ -314,6 +340,7 @@ export function isUniqueViolation(error: unknown, fragment: string): boolean {
 // ----------------------------------------------------------------------
 
 export const CUSTOMER_CONFLICT_CODE = {
+  DUPLICATE_GSTIN: 'DUPLICATE_GSTIN',
   DUPLICATE_PAN: 'DUPLICATE_PAN',
   DUPLICATE_NAME: 'DUPLICATE_NAME',
   CUSTOMER_INACTIVE: 'CUSTOMER_INACTIVE',
@@ -364,6 +391,18 @@ export function conflictDuplicatePan(
   );
 }
 
+export function conflictDuplicateCustomerGstin(
+  existing?: ExistingCustomer,
+): ConflictException {
+  return conflict(
+    existing
+      ? `This GSTIN is already registered to ${existing.customerName} (${existing.customerCode}). Use that customer instead of creating another.`
+      : 'This GSTIN is already registered to another customer. Use that customer instead of creating another.',
+    CUSTOMER_CONFLICT_CODE.DUPLICATE_GSTIN,
+    existing,
+  );
+}
+
 export function conflictDuplicateName(
   existing: ExistingCustomer,
 ): ConflictException {
@@ -401,8 +440,12 @@ export function conflictAlreadyActive(): ConflictException {
   );
 }
 
-// PAN is checked before name: it is the stronger identity.
+// GSTIN, then PAN, then name: the stronger identity first.
 export function assertNoBlockingDuplicate(matches: CustomerMatch[]): void {
+  const byGstin = matches.find((m) => m.gstinMatch);
+
+  if (byGstin) throw conflictDuplicateCustomerGstin(byGstin);
+
   const byPan = matches.find((m) => m.panMatch);
 
   if (byPan) throw conflictDuplicatePan(byPan);
