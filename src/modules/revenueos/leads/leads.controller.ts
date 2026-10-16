@@ -17,6 +17,7 @@ import { UpdateLeadDto } from './dto/update-lead.dto';
 import { CreateLeadActivityDto } from './dto/create-lead-activity.dto';
 import { DeactivateLeadDto } from './dto/deactivate-lead.dto';
 import { ListLeadsQueryDto } from './dto/list-leads-query.dto';
+import { SearchLeadsQueryDto } from './dto/search-leads-query.dto';
 
 import { JwtAuthGuard } from '../../../core/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../../core/guards/permissions.guard';
@@ -47,6 +48,16 @@ export class LeadsController {
     @Req() req: { user?: { id?: string; permissions?: unknown } },
   ) {
     return this.leadsService.findAll(query.includeInactive, scopeOf(req.user));
+  }
+
+  // Declared before ":id" so it is not read as a lead id.
+  @Get('search')
+  @Permissions('leads.view')
+  search(
+    @Query() query: SearchLeadsQueryDto,
+    @Req() req: { user?: { id?: string; permissions?: unknown } },
+  ) {
+    return this.leadsService.search(query, scopeOf(req.user));
   }
 
   @Get(':id')

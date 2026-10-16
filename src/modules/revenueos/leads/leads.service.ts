@@ -13,6 +13,8 @@ import { PrismaService } from '../../../core/database/prisma.service';
 import { CreateLeadDto } from './dto/create-lead.dto';
 import { UpdateLeadDto } from './dto/update-lead.dto';
 import { CreateLeadActivityDto } from './dto/create-lead-activity.dto';
+import { SearchLeadsQueryDto } from './dto/search-leads-query.dto';
+import { searchLeads } from './lead-search';
 import {
   LEAD_ACTOR_SELECT,
   LEAD_HISTORY_INCLUDE,
@@ -109,6 +111,12 @@ export class LeadsService {
         createdAt: 'desc',
       },
     });
+  }
+
+  // The Leads list and the Pre-Sales panel: filtered, sorted, paged and counted on the
+  // server, inside the caller's record scope (lead-search.ts).
+  async search(query: SearchLeadsQueryDto, scope: RecordScope) {
+    return searchLeads(this.prisma, query, scope);
   }
 
   async findOne(id: string) {
