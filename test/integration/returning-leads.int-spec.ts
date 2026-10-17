@@ -200,6 +200,7 @@ it('3. a returning lead already linked to a customer: the link and its salespers
     id: customerOfTara,
     customerName: 'Orbit Narrow Fabrics',
     mappedTo: [{ id: tara, fullName: 'Tara Sales' }],
+    salesperson: { status: 'ASSIGNED', id: tara, fullName: 'Tara Sales' },
   });
   const tl = await ctx.db.lead.findFirstOrThrow({
     where: { customerName: 'Omkar Shah' },
@@ -246,6 +247,7 @@ it('5. a GSTIN of a customer Tara looks after: Sam is told it exists and who loo
       // the PAN inside the GSTIN matches too
       reasons: ['GSTIN', 'PAN'],
       mappedTo: [{ id: tara, fullName: 'Tara Sales' }],
+      salesperson: { status: 'ASSIGNED', id: tara, fullName: 'Tara Sales' },
     },
   ]);
   const raw = JSON.stringify(r.body);
@@ -284,6 +286,7 @@ it('6. a possible customer match the person may not open (no customers.view): ex
     strength: 'POSSIBLE',
     reasons: ['PHONE'],
     mappedTo: [{ id: tara, fullName: 'Tara Sales' }],
+    salesperson: { status: 'ASSIGNED', id: tara, fullName: 'Tara Sales' },
   });
   // The matching earlier lead is Tara's: outside this person's scope, shown without details.
   const l = r.body.leads[0];

@@ -6,8 +6,10 @@ import {
   matchStrength,
 } from '../customer-master/customer-lifecycle';
 import {
+  customerSalesperson,
   customerSalespeople,
   MappedSalesperson,
+  SalespersonResolution,
 } from '../customer-master/customer-relationship';
 import {
   RecordScope,
@@ -258,6 +260,7 @@ export async function findLeadDuplicates(
           ).map((c) => c.id),
   );
   const mapped = await customerSalespeople(db, allCustomerIds);
+  const resolved = await customerSalesperson(db, allCustomerIds);
   const named = new Map(
     (
       await db.customer.findMany({
@@ -273,6 +276,10 @@ export async function findLeadDuplicates(
   );
   const customerRef = (id: string) => {
     const mappedTo: MappedSalesperson[] = mapped.get(id) ?? [];
+    const salesperson: SalespersonResolution = resolved.get(id) ?? {
+      status: 'NOT_CLEAR',
+      reason: 'NONE',
+    };
     const c = named.get(id);
     return c
       ? {
@@ -281,8 +288,9 @@ export async function findLeadDuplicates(
           customerName: c.customerName,
           isActive: c.isActive,
           mappedTo,
+          salesperson,
         }
-      : { hidden: true as const, mappedTo };
+      : { hidden: true as const, mappedTo, salesperson };
   };
 
   const at = probe.createdAt ?? null;

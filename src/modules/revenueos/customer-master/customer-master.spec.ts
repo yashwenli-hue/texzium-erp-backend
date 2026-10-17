@@ -920,6 +920,7 @@ describe('Customer master over HTTP', () => {
           reasons: ['NAME'],
           strength: 'STRONG',
           mappedTo: [],
+          salesperson: { status: 'NOT_CLEAR', reason: 'NONE' },
           createdBy: null,
         },
       ]);
@@ -932,6 +933,7 @@ describe('Customer master over HTTP', () => {
           reasons: ['PHONE', 'EMAIL'],
           strength: 'POSSIBLE',
           mappedTo: [],
+          salesperson: { status: 'NOT_CLEAR', reason: 'NONE' },
           createdBy: null,
         },
       ]);

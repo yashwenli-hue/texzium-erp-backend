@@ -4,6 +4,7 @@ import { PrismaClient } from '@prisma/client';
 
 import {
   customerCreators,
+  customerSalesperson,
   customerSalespeople,
 } from '../customer-master/customer-relationship';
 import { RecordScope, isVisible } from './record-scope';
@@ -52,12 +53,20 @@ export async function hideInaccessibleCustomer<T>(
     if (!customerId) throw error;
     const mappedTo =
       (await customerSalespeople(db, [customerId])).get(customerId) ?? [];
+    const salesperson = (await customerSalesperson(db, [customerId])).get(
+      customerId,
+    );
     // A customer the caller may see: the refusal names it as before, and also who looks
     // after it and who created it (two different facts; either may be unknown).
     if (scope.all || (await isVisible(db, scope, 'customer', customerId))) {
       const createdBy =
         (await customerCreators(db, [customerId])).get(customerId) ?? null;
-      throw new ConflictException({ ...body, mappedTo, createdBy });
+      throw new ConflictException({
+        ...body,
+        mappedTo,
+        salesperson,
+        createdBy,
+      });
     }
     const { existing: _hidden, ...rest } = body;
     void _hidden;
@@ -67,6 +76,7 @@ export async function hideInaccessibleCustomer<T>(
       message: HIDDEN_MESSAGE[code] ?? FALLBACK,
       existingHidden: true,
       mappedTo,
+      salesperson,
     });
   }
 }

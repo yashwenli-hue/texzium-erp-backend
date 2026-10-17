@@ -1,4 +1,8 @@
-import { customerCreators, customerSalespeople } from './customer-relationship';
+import {
+  customerCreators,
+  customerSalesperson,
+  customerSalespeople,
+} from './customer-relationship';
 import {
   BadRequestException,
   Injectable,
@@ -282,6 +286,10 @@ export class CustomerMasterService {
       this.prisma,
       matches.map((m) => m.id),
     );
+    const sp = await customerSalesperson(
+      this.prisma,
+      matches.map((m) => m.id),
+    );
     // Who created it: only for a customer the caller may see (never for a hidden one).
     const creators = await customerCreators(
       this.prisma,
@@ -297,6 +305,7 @@ export class CustomerMasterService {
             reasons: matchReasons(m),
             strength: matchStrength(m),
             mappedTo: mapped.get(m.id) ?? [],
+            salesperson: sp.get(m.id),
             createdBy: creators.get(m.id) ?? null,
           }
         : {
@@ -308,6 +317,7 @@ export class CustomerMasterService {
             reasons: matchReasons(m),
             strength: matchStrength(m),
             mappedTo: mapped.get(m.id) ?? [],
+            salesperson: sp.get(m.id),
           };
 
     const blocks = (m: CustomerMatch) =>

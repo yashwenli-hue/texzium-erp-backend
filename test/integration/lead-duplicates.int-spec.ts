@@ -106,6 +106,7 @@ describe('while a lead is being entered', () => {
         customerName: 'Sterling Pumps',
         isActive: true,
         mappedTo: [],
+        salesperson: { status: 'NOT_CLEAR', reason: 'NONE' },
         link: 'MATCH',
         strength: 'POSSIBLE',
         reasons: ['PHONE'],
@@ -178,6 +179,7 @@ describe('without access to the other records', () => {
       {
         hidden: true,
         mappedTo: [],
+        salesperson: { status: 'NOT_CLEAR', reason: 'NONE' },
         link: 'MATCH',
         strength: 'STRONG',
         reasons: ['NAME', 'PHONE'],

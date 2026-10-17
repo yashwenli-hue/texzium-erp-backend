@@ -345,6 +345,7 @@ describe('duplicate checks and refusals do not reveal a customer the caller cann
         strength: 'EXACT',
         // who looks after it (routing), never the customer itself
         mappedTo: [{ id: tara, fullName: 'Tara Sales' }],
+        salesperson: { status: 'ASSIGNED', id: tara, fullName: 'Tara Sales' },
       },
     ]);
     expect(JSON.stringify(r.body)).not.toContain(taraChain.customer);

@@ -40,6 +40,62 @@ export async function customerCreators(
   return out;
 }
 
+// The ONE salesperson a customer can be routed to, or why there is none. Reliable only
+// when every lead behind the customer's opportunities that has an assignee has the SAME
+// assignee and that person is active. Otherwise it is not clear - nobody is guessed:
+//   NONE      no opportunity, or none of their leads is assigned
+//   INACTIVE  the one assignee is no longer active
+//   MULTIPLE  different people are assigned across its deals (history or shared account)
+export type SalespersonResolution =
+  | { status: 'ASSIGNED'; id: string; fullName: string }
+  | { status: 'NOT_CLEAR'; reason: 'NONE' | 'INACTIVE' | 'MULTIPLE' };
+
+export async function customerSalesperson(
+  db: Pick<PrismaClient, 'opportunity'>,
+  customerIds: readonly string[],
+): Promise<Map<string, SalespersonResolution>> {
+  const ids = [...new Set(customerIds)].filter((x) => !!x);
+  const out = new Map<string, SalespersonResolution>();
+  for (const id of ids) out.set(id, { status: 'NOT_CLEAR', reason: 'NONE' });
+  if (!ids.length) return out;
+  const rows = await db.opportunity.findMany({
+    where: { customerId: { in: ids }, lead: { assignedToId: { not: null } } },
+    select: {
+      customerId: true,
+      lead: {
+        select: {
+          assignedTo: { select: { id: true, fullName: true, status: true } },
+        },
+      },
+    },
+  });
+  const people = new Map<
+    string,
+    Map<string, { fullName: string; status: string }>
+  >();
+  for (const r of rows) {
+    const p = r.lead.assignedTo;
+    if (!r.customerId || !p) continue;
+    const m = people.get(r.customerId) ?? new Map();
+    m.set(p.id, { fullName: p.fullName, status: p.status });
+    people.set(r.customerId, m);
+  }
+  for (const [customerId, m] of people) {
+    if (m.size > 1) {
+      out.set(customerId, { status: 'NOT_CLEAR', reason: 'MULTIPLE' });
+      continue;
+    }
+    const [[id, p]] = [...m.entries()];
+    out.set(
+      customerId,
+      p.status === 'ACTIVE'
+        ? { status: 'ASSIGNED', id, fullName: p.fullName }
+        : { status: 'NOT_CLEAR', reason: 'INACTIVE' },
+    );
+  }
+  return out;
+}
+
 type Db = Pick<PrismaClient, 'opportunity'>;
 
 export async function customerSalespeople(
