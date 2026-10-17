@@ -1,7 +1,9 @@
 import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
 import { FinancialYearsService } from './financial-years.service';
 import { CreateFinancialYearDto } from './dto/create-financial-year.dto';
+import { FinanceRecords } from '../../revenueos/record-scope/finance-visibility.guard';
 
+@FinanceRecords()
 @Controller('financial-years')
 export class FinancialYearsController {
   constructor(

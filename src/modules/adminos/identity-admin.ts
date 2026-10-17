@@ -39,6 +39,14 @@ export async function requireActor(
 // Hold what you grant: nobody can hand out a permission they do not hold themselves
 // (directly, by assigning it to a role, or indirectly, by creating a user in a role).
 // No role is exempt: SUPER_ADMIN can grant exactly the permissions it has been granted.
+// A code that another, wider code already includes: holding the wider one counts as
+// holding it for hold-what-you-grant. revenue.view.all (every RevenueOS record) includes
+// finance.view.all (every financial record), so an administrator can delegate finance
+// visibility without first being granted the narrower code.
+export const INCLUDED_BY: Readonly<Record<string, readonly string[]>> = {
+  'finance.view.all': ['revenue.view.all'],
+};
+
 export function assertHoldsAll(
   caller: AdminCaller | undefined,
   required: string[],
@@ -47,7 +55,10 @@ export function assertHoldsAll(
   const held = Array.isArray(caller?.permissions)
     ? (caller.permissions as unknown[])
     : [];
-  const missing = [...new Set(required)].filter((code) => !held.includes(code));
+  const holds = (code: string) =>
+    held.includes(code) ||
+    (INCLUDED_BY[code] ?? []).some((wider) => held.includes(wider));
+  const missing = [...new Set(required)].filter((code) => !holds(code));
 
   if (missing.length > 0) {
     throw new ForbiddenException(
@@ -95,6 +106,8 @@ export async function recordAdminAudit(
 // screens ask the person to confirm before they send it.
 export const SENSITIVE_PERMISSIONS: readonly string[] = [
   'revenue.view.all',
+  'finance.view.all',
+  'payments.gateway.manage',
   'invoices.create',
   'invoices.document.view',
   'collections.record',

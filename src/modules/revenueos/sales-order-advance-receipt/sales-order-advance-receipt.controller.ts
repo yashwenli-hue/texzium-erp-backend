@@ -20,7 +20,7 @@ import {
   RecordScopeGuard,
   ScopedRecord,
 } from '../record-scope/record-scope.guard';
-import { scopeOf } from '../record-scope/record-scope';
+import { financeScopeOf } from '../record-scope/record-scope';
 
 @Controller('sales-order-advance-receipt')
 @UseGuards(JwtAuthGuard, PermissionsGuard, RecordScopeGuard)
@@ -30,7 +30,7 @@ export class SalesOrderAdvanceReceiptController {
   ) {}
 
   @Post('create')
-  @ScopedRecord('salesOrder', 'body.salesOrderId')
+  @ScopedRecord('salesOrder', 'body.salesOrderId', { finance: true })
   @Permissions('salesorders.advancereceipts.create')
   create(@Body() data: CreateSalesOrderAdvanceReceiptDto) {
     return this.salesOrderAdvanceReceiptService.create(data);
@@ -67,6 +67,8 @@ export class SalesOrderAdvanceReceiptController {
   @Get()
   @Permissions('salesorders.advancereceipts.view')
   findAll(@Req() req: { user?: { id?: string; permissions?: unknown } }) {
-    return this.salesOrderAdvanceReceiptService.findAll(scopeOf(req.user));
+    return this.salesOrderAdvanceReceiptService.findAll(
+      financeScopeOf(req.user),
+    );
   }
 }

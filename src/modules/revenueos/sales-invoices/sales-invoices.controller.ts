@@ -25,7 +25,7 @@ import {
   RecordScopeGuard,
   ScopedRecord,
 } from '../record-scope/record-scope.guard';
-import { scopeOf } from '../record-scope/record-scope';
+import { financeScopeOf } from '../record-scope/record-scope';
 
 // Issuing an invoice needs invoices.create; reading invoices needs
 // invoices.view (both were open to any signed-in user before).
@@ -35,7 +35,7 @@ export class SalesInvoicesController {
   constructor(private readonly salesInvoicesService: SalesInvoicesService) {}
 
   @Post()
-  @ScopedRecord('salesOrder', 'body.salesOrderId')
+  @ScopedRecord('salesOrder', 'body.salesOrderId', { finance: true })
   @Permissions('invoices.create')
   create(@Body() body: CreateSalesInvoiceDto) {
     return this.salesInvoicesService.create(body);
@@ -44,7 +44,7 @@ export class SalesInvoicesController {
   @Get()
   @Permissions('invoices.view')
   findAll(@Req() req: { user?: { id?: string; permissions?: unknown } }) {
-    return this.salesInvoicesService.findAll(scopeOf(req.user));
+    return this.salesInvoicesService.findAll(financeScopeOf(req.user));
   }
 
   // The tax invoice as a PDF, built in memory. Needs invoices.view AND

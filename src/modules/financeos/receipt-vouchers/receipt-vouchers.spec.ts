@@ -10,6 +10,10 @@ import { PrismaService } from '../../../core/database/prisma.service';
 import { PERMISSIONS_KEY } from '../../../core/decorators/permissions.decorator';
 import { ReceiptVouchersController } from './receipt-vouchers.controller';
 import { ReceiptVouchersModule } from './receipt-vouchers.module';
+import { RecordScopeGuard } from '../../revenueos/record-scope/record-scope.guard';
+
+// The record scope of these routes is tested on a real database (record-visibility).
+const SCOPE_TESTED_ELSEWHERE = { canActivate: () => true };
 
 const PAY = '00000000-0000-4000-8000-000000000001';
 const PAY_OLD = '00000000-0000-4000-8000-000000000002'; // already has a legacy RCPT- receipt
@@ -85,6 +89,8 @@ describe('/receipt-vouchers', () => {
     })
       .overrideProvider(PrismaService)
       .useValue(db)
+      .overrideGuard(RecordScopeGuard)
+      .useValue(SCOPE_TESTED_ELSEWHERE)
       .compile();
     app = moduleRef.createNestApplication({ logger: false });
     app.useGlobalPipes(

@@ -7,7 +7,13 @@ import {
 import { Reflector } from '@nestjs/core';
 
 import { PrismaService } from '../../../core/database/prisma.service';
-import { assertVisible, scopeOf, ScopedKind } from './record-scope';
+import {
+  assertVisible,
+  FINANCE_KINDS,
+  financeScopeOf,
+  scopeOf,
+  ScopedKind,
+} from './record-scope';
 
 export const SCOPED_RECORDS_KEY = 'revenueos:scoped-records';
 
@@ -15,15 +21,23 @@ export type ScopedRecordSpec = {
   kind: ScopedKind;
   from: 'params' | 'body' | 'query';
   field: string;
+  /** Check it with the finance scope (always so for FINANCE_KINDS). */
+  finance?: boolean;
 };
 
 /**
  * The record this route reads or changes must be visible to the caller (record-scope.ts),
  * or the request is answered 404 before the handler runs. `source` is where its id is:
  * 'params.id', 'body.leadId', 'query.salesOrderId', ... A missing or non-string value is
- * left to validation. Several decorators may be stacked.
+ * left to validation. Several decorators may be stacked. `{ finance: true }` checks it with
+ * the finance scope: for a record a finance user works from (the sales order an invoice is
+ * raised against, the customer whose statement is read).
  */
-export const ScopedRecord = (kind: ScopedKind, source: string) => {
+export const ScopedRecord = (
+  kind: ScopedKind,
+  source: string,
+  options: { finance?: boolean } = {},
+) => {
   const [from, field] = source.split('.') as [ScopedRecordSpec['from'], string];
   return (
     target: object,
@@ -36,7 +50,10 @@ export const ScopedRecord = (kind: ScopedKind, source: string) => {
         | ScopedRecordSpec[]
         | undefined) ?? [];
     // Decorators run bottom-up: prepend, so the checks run in the order they are written.
-    SetMetadata(SCOPED_RECORDS_KEY, [{ kind, from, field }, ...existing])(
+    const spec: ScopedRecordSpec = options.finance
+      ? { kind, from, field, finance: true }
+      : { kind, from, field };
+    SetMetadata(SCOPED_RECORDS_KEY, [spec, ...existing])(
       target,
       key as string,
       descriptor as PropertyDescriptor,
@@ -63,11 +80,14 @@ export class RecordScopeGuard implements CanActivate {
       body?: Record<string, unknown>;
       query?: Record<string, unknown>;
     }>();
-    const scope = scopeOf(req.user);
-    if (scope.all) return true;
+    const general = scopeOf(req.user);
+    if (general.all) return true;
+    const finance = financeScopeOf(req.user);
     for (const spec of specs) {
       const value = req[spec.from]?.[spec.field];
       if (typeof value !== 'string' || value === '') continue;
+      const scope =
+        spec.finance || FINANCE_KINDS.has(spec.kind) ? finance : general;
       await assertVisible(this.prisma, scope, spec.kind, value);
     }
     return true;

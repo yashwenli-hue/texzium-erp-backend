@@ -1,6 +1,8 @@
 import { Controller, Get } from '@nestjs/common';
 import { VendorAnalyticsService } from './vendor-analytics.service';
+import { FinanceRecords } from '../../revenueos/record-scope/finance-visibility.guard';
 
+@FinanceRecords()
 @Controller('vendor-analytics')
 export class VendorAnalyticsController {
   constructor(

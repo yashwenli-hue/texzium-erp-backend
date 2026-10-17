@@ -1,7 +1,9 @@
 import { Body, Controller, Get, Post } from '@nestjs/common';
 import { CustomerLedgersService } from './customer-ledgers.service';
 import { CreateCustomerLedgerDto } from './dto/create-customer-ledger.dto';
+import { FinanceRecords } from '../../revenueos/record-scope/finance-visibility.guard';
 
+@FinanceRecords()
 @Controller('customer-ledgers')
 export class CustomerLedgersController {
   constructor(

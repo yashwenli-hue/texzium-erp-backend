@@ -34,7 +34,7 @@ export class CustomerStatementsController {
   ) {}
 
   @Get(':id/statement')
-  @ScopedRecord('customer', 'params.id')
+  @ScopedRecord('customer', 'params.id', { finance: true })
   @Permissions('collections.view')
   statement(
     @Param('id', new ParseUUIDPipe()) id: string,
@@ -44,7 +44,7 @@ export class CustomerStatementsController {
   }
 
   @Get(':id/statement.pdf')
-  @ScopedRecord('customer', 'params.id')
+  @ScopedRecord('customer', 'params.id', { finance: true })
   @Permissions('collections.view')
   async statementPdf(
     @Param('id', new ParseUUIDPipe()) id: string,

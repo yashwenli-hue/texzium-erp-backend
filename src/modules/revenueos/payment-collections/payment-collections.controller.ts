@@ -20,7 +20,7 @@ import {
   RecordScopeGuard,
   ScopedRecord,
 } from '../record-scope/record-scope.guard';
-import { scopeOf } from '../record-scope/record-scope';
+import { financeScopeOf } from '../record-scope/record-scope';
 
 // Reading needs collections.view, recording needs collections.record. The
 // recorder is the signed-in user; it is never accepted from the request.
@@ -47,7 +47,10 @@ export class PaymentCollectionsController {
     @Query() query: ListPaymentCollectionsQueryDto,
     @Req() req: { user?: { id?: string; permissions?: unknown } },
   ) {
-    return this.paymentCollectionsService.findAll(query, scopeOf(req.user));
+    return this.paymentCollectionsService.findAll(
+      query,
+      financeScopeOf(req.user),
+    );
   }
 
   // One invoice's receivable with its collections and events.

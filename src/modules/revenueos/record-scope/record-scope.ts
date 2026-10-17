@@ -22,10 +22,21 @@ import { Prisma } from '@prisma/client';
 // A record outside the scope is answered as "not found" (404), never 403, so its
 // existence does not leak; lists, counts and searches only ever contain records in it.
 //
+// Finance (`finance.view.all`) sees every FINANCIAL record - sales invoices, receivables,
+// payments, advance receipts, receipt vouchers and customer statements - without seeing
+// every lead, opportunity, quotation or customer record: financeScopeOf() is used for
+// those kinds only. `revenue.view.all` includes it. The permission codes of each route
+// still apply on top (a finance scope never replaces invoices.view, collections.view...).
+//
+// Visibility through history is cumulative by design (D3, 2026-10-17): someone who
+// worked on a lead keeps it, and the deal under it, after reassignment or hand-off.
+// Revoking or time-limiting that is a separate, documented follow-up.
+//
 // The rule follows the existing assignment model. Teams, managers or explicit customer
 // owners do not exist in the data; adding them is a business decision (see the handover).
 
 export const VIEW_ALL_PERMISSION = 'revenue.view.all';
+export const FINANCE_VIEW_PERMISSION = 'finance.view.all';
 
 export type RecordScope = { all: true } | { all: false; userId: string };
 
@@ -34,14 +45,42 @@ export const ALL_RECORDS: RecordScope = { all: true };
 
 export type ScopedUser = { id?: string; permissions?: unknown } | undefined;
 
+const permsOf = (user: ScopedUser): unknown[] =>
+  Array.isArray(user?.permissions) ? (user.permissions as unknown[]) : [];
+
 export function scopeOf(user: ScopedUser): RecordScope {
   if (!user?.id)
     throw new UnauthorizedException('Authenticated user required.');
-  const perms = Array.isArray(user.permissions) ? user.permissions : [];
-  return perms.includes(VIEW_ALL_PERMISSION)
+  return permsOf(user).includes(VIEW_ALL_PERMISSION)
     ? { all: true }
     : { all: false, userId: user.id };
 }
+
+/** Holds finance-wide visibility: `finance.view.all`, or `revenue.view.all` which includes it. */
+export function hasFinanceVisibility(user: ScopedUser): boolean {
+  const perms = permsOf(user);
+  return (
+    perms.includes(VIEW_ALL_PERMISSION) ||
+    perms.includes(FINANCE_VIEW_PERMISSION)
+  );
+}
+
+/** The scope for financial records (FINANCE_KINDS and the statement of a customer). */
+export function financeScopeOf(user: ScopedUser): RecordScope {
+  if (!user?.id)
+    throw new UnauthorizedException('Authenticated user required.');
+  return hasFinanceVisibility(user)
+    ? { all: true }
+    : { all: false, userId: user.id };
+}
+
+/** The kinds a finance scope applies to. */
+export const FINANCE_KINDS: ReadonlySet<ScopedKind> = new Set<ScopedKind>([
+  'salesInvoice',
+  'paymentCollection',
+  'advanceReceipt',
+  'receiptVoucher',
+]);
 
 /** `undefined` means "no restriction" (merge with `and`). */
 type W<T> = T | undefined;
@@ -124,6 +163,13 @@ export function paymentCollectionWhere(
   return accountsReceivable ? { accountsReceivable } : undefined;
 }
 
+export function receiptVoucherWhere(
+  scope: RecordScope,
+): W<Prisma.ReceiptVoucherWhereInput> {
+  const paymentCollection = paymentCollectionWhere(scope);
+  return paymentCollection ? { paymentCollection } : undefined;
+}
+
 export function gstRegistrationWhere(
   scope: RecordScope,
 ): W<Prisma.CustomerGSTRegistrationWhereInput> {
@@ -181,6 +227,7 @@ export const NOT_FOUND_MESSAGE: Record<ScopedKind, string> = {
   salesOrder: 'Sales order not found.',
   salesInvoice: 'Sales invoice not found.',
   paymentCollection: 'Payment not found.',
+  receiptVoucher: 'Receipt not found.',
   followup: 'Follow-up not found.',
   advanceReceipt: 'Advance receipt not found.',
   commercialApproval: 'Commercial approval not found.',
@@ -198,6 +245,7 @@ export type ScopedKind =
   | 'paymentCollection'
   | 'followup'
   | 'advanceReceipt'
+  | 'receiptVoucher'
   | 'commercialApproval';
 
 type CountDb = {
@@ -213,6 +261,7 @@ type CountDb = {
     | 'paymentCollection'
     | 'leadFollowup'
     | 'salesOrderAdvanceReceipt'
+    | 'receiptVoucher'
     | 'accountsCommercialApproval']: {
     count: (args: { where: object }) => Promise<number>;
   };
@@ -262,6 +311,10 @@ export async function isVisible(
         (await db.salesOrderAdvanceReceipt.count(
           by(salesOrderChildWhere(scope)),
         )) > 0
+      );
+    case 'receiptVoucher':
+      return (
+        (await db.receiptVoucher.count(by(receiptVoucherWhere(scope)))) > 0
       );
     case 'commercialApproval':
       return (

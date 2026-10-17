@@ -1,6 +1,8 @@
 import { Controller, Get } from '@nestjs/common';
 import { CollectionsDashboardService } from './collections-dashboard.service';
+import { FinanceRecords } from '../../revenueos/record-scope/finance-visibility.guard';
 
+@FinanceRecords()
 @Controller('collections-dashboard')
 export class CollectionsDashboardController {
   constructor(

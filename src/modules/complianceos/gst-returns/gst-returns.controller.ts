@@ -1,6 +1,8 @@
 import { Controller, Get } from '@nestjs/common';
 import { GstReturnsService } from './gst-returns.service';
+import { FinanceRecords } from '../../revenueos/record-scope/finance-visibility.guard';
 
+@FinanceRecords()
 @Controller('gst-returns')
 export class GstReturnsController {
   constructor(private readonly gstReturnsService: GstReturnsService) {}
