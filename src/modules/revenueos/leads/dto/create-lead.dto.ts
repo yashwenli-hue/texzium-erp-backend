@@ -43,6 +43,11 @@ export class CreateLeadDto {
   @IsUUID()
   sourceId: string;
 
+  // The product or machine the enquiry is about: an existing inventory item, when known.
+  @IsOptional()
+  @IsUUID()
+  inventoryItemId?: string | null;
+
   // Location is optional here (leads that arrive without one stay valid); the
   // rules that tie the three fields together are in lead-location.ts.
   @Transform(({ value }: { value: unknown }) => normalizeCountryInput(value))

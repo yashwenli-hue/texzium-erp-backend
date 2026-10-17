@@ -51,6 +51,19 @@ export const LEAD_OPPORTUNITY_ELIGIBLE: readonly LeadStatus[] = [
 /** Where a reopened lead goes: back into pre-qualification work. */
 export const LEAD_REOPEN_TARGET: LeadStatus = 'CONTACTED';
 
+// Where a lead is in its lifecycle, grouping the canonical statuses (no status is added or
+// renamed): for filtering a list by stage. REJECTED is the one "rejected / disqualified".
+export const LEAD_STAGES = {
+  PRE_QUALIFICATION: LEAD_BEFORE_QUALIFICATION,
+  QUALIFIED: ['QUALIFIED', 'SALES_ASSIGNED'],
+  IN_PROGRESS: ['PROPOSAL_SENT', 'NEGOTIATION'],
+  WON: ['WON'],
+  LOST: ['LOST'],
+  REJECTED: ['REJECTED'],
+} as const satisfies Record<string, readonly LeadStatus[]>;
+export type LeadStage = keyof typeof LEAD_STAGES;
+export const LEAD_STAGE_KEYS = Object.keys(LEAD_STAGES) as LeadStage[];
+
 /** The statuses POST /lead-status may set. */
 export const LEAD_STATUS_MOVE_TARGETS: readonly LeadStatus[] = [
   'NEW',

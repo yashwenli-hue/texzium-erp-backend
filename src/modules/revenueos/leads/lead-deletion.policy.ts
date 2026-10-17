@@ -58,6 +58,7 @@ export const LEAD_RESTORE_CONFLICT = {
   ID_EXISTS: 'LEAD_ID_EXISTS',
   CODE_TAKEN: 'LEAD_CODE_TAKEN',
   SOURCE_MISSING: 'LEAD_SOURCE_MISSING',
+  PRODUCT_MISSING: 'LEAD_PRODUCT_MISSING',
   USER_MISSING: 'LEAD_USER_MISSING',
   CHILD_ID_EXISTS: 'LEAD_CHILD_ID_EXISTS',
 } as const;
@@ -74,6 +75,7 @@ const LEAD_COLUMNS = [
   'alternatePhone',
   'sourceId',
   'assignedToId',
+  'inventoryItemId',
   'country',
   'state',
   'city',
@@ -443,6 +445,20 @@ export const LEAD_DELETION_POLICY: DeletionPolicy = {
         code: LEAD_RESTORE_CONFLICT.SOURCE_MISSING,
         message: 'Its lead source no longer exists.',
       });
+    }
+
+    if (typeof lead.inventoryItemId === 'string') {
+      const item = await db.inventoryItem.findUnique({
+        where: { id: lead.inventoryItemId },
+        select: { id: true },
+      });
+
+      if (!item) {
+        conflicts.push({
+          code: LEAD_RESTORE_CONFLICT.PRODUCT_MISSING,
+          message: 'The product it was about no longer exists.',
+        });
+      }
     }
 
     const personIds = uniqueStrings([

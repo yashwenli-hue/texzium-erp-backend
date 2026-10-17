@@ -26,6 +26,11 @@ import { Permissions } from '../../../core/decorators/permissions.decorator';
 import { RecordScopeGuard, ScopedRecord } from '../record-scope/record-scope.guard';
 import { scopeOf } from '../record-scope/record-scope';
 
+// A customer's own details appear in a lead's duplicate check only for someone who could
+// open the customer: in scope AND holding customers.view (both checks, as everywhere).
+const holds = (user: { permissions?: unknown } | undefined, code: string) =>
+  Array.isArray(user?.permissions) && user.permissions.includes(code);
+
 @Controller('leads')
 @UseGuards(JwtAuthGuard, PermissionsGuard, RecordScopeGuard)
 export class LeadsController {
@@ -68,7 +73,9 @@ export class LeadsController {
     @Query() query: LeadDuplicateCheckQueryDto,
     @Req() req: { user?: { id?: string; permissions?: unknown } },
   ) {
-    return this.leadsService.duplicateCheck(query, scopeOf(req.user));
+    return this.leadsService.duplicateCheck(query, scopeOf(req.user), {
+      canViewCustomers: holds(req.user, 'customers.view'),
+    });
   }
 
   @Get(':id/duplicates')
@@ -78,7 +85,9 @@ export class LeadsController {
     @Param('id') id: string,
     @Req() req: { user?: { id?: string; permissions?: unknown } },
   ) {
-    return this.leadsService.duplicatesOf(id, scopeOf(req.user));
+    return this.leadsService.duplicatesOf(id, scopeOf(req.user), {
+      canViewCustomers: holds(req.user, 'customers.view'),
+    });
   }
 
   @Get(':id')

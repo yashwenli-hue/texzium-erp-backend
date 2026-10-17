@@ -1,3 +1,4 @@
+import { customerSalespeople } from './customer-relationship';
 import {
   BadRequestException,
   Injectable,
@@ -274,6 +275,13 @@ export class CustomerMasterService {
           ).map((c) => c.id),
         );
 
+    // Who looks after each match, so the enquiry can be routed to them (also for a
+    // customer the caller may not open: the name of the salesperson only, never the
+    // customer's details).
+    const mapped = await customerSalespeople(
+      this.prisma,
+      matches.map((m) => m.id),
+    );
     const present = (m: CustomerMatch) =>
       !visible || visible.has(m.id)
         ? {
@@ -283,6 +291,7 @@ export class CustomerMasterService {
             isActive: m.isActive,
             reasons: matchReasons(m),
             strength: matchStrength(m),
+            mappedTo: mapped.get(m.id) ?? [],
           }
         : {
             id: null,
@@ -292,6 +301,7 @@ export class CustomerMasterService {
             hidden: true,
             reasons: matchReasons(m),
             strength: matchStrength(m),
+            mappedTo: mapped.get(m.id) ?? [],
           };
 
     const blocks = (m: CustomerMatch) =>

@@ -1,7 +1,8 @@
 /* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-argument -- supertest response bodies are loosely typed */
 import { Ctx, lead, reset, role, startApp, stopApp, user } from './harness';
 
-// Likely duplicate leads and existing customers, on a real database.
+// Likely duplicate leads and existing customers, on a real database. (The returning-
+// enquiry scenarios of 2026-10-17 are in returning-leads.int-spec.ts.)
 
 let ctx: Ctx;
 let admin: string,
@@ -82,12 +83,20 @@ describe('while a lead is being entered', () => {
       customerName: 'New Person',
     });
     expect(r.status).toBe(200);
-    expect(r.body.exact).toBe(2);
+    // The same number under another name: possibly another person, not called the same one.
+    expect(r.body.summary.possibleMatches).toBe(2);
     expect(
-      r.body.leads.map((l: any) => [l.id, l.strength, l.reasons, l.sourceName]),
+      r.body.leads.map((l: any) => [
+        l.id,
+        l.strength,
+        l.kind,
+        l.differentName,
+        l.reasons,
+        l.sourceName,
+      ]),
     ).toEqual([
-      [first, 'EXACT', ['PHONE'], 'IndiaMART'],
-      [second, 'EXACT', ['PHONE'], 'Website'],
+      [first, 'POSSIBLE', 'POSSIBLE_MATCH', true, ['PHONE'], 'IndiaMART'],
+      [second, 'POSSIBLE', 'POSSIBLE_MATCH', true, ['PHONE'], 'Website'],
     ]);
     expect(r.body.productComparison).toBe('unavailable');
     expect(r.body.customers).toEqual([
@@ -96,6 +105,9 @@ describe('while a lead is being entered', () => {
         customerCode: 'CUST-000001',
         customerName: 'Sterling Pumps',
         isActive: true,
+        mappedTo: [],
+        link: 'MATCH',
+        strength: 'POSSIBLE',
         reasons: ['PHONE'],
       },
     ]);
@@ -111,7 +123,7 @@ describe('while a lead is being entered', () => {
       r.body.leads.map((l: any) => [l.customerName, l]),
     );
     expect(by['Asha Rao']).toMatchObject({
-      strength: 'EXACT',
+      strength: 'STRONG',
       reasons: ['EMAIL', 'COMPANY_AND_CITY'],
     });
     expect(by['Someone Else']).toMatchObject({
@@ -133,7 +145,8 @@ describe('for an existing lead', () => {
     expect(mine).toMatchObject({
       relation: 'EARLIER',
       strength: 'EXACT',
-      reasons: ['PHONE', 'NAME_AND_COMPANY'],
+      kind: 'POTENTIAL_DUPLICATE',
+      reasons: ['PHONE', 'NAME', 'NAME_AND_COMPANY'],
       sourceName: 'IndiaMART',
     });
     expect(r.body.leads.some((l: any) => l.id === second)).toBe(false);
@@ -148,16 +161,27 @@ describe('without access to the other records', () => {
   it('says that a match exists, not which lead or customer it is', async () => {
     const r = await ctx.as(tara).get(`/leads/${second}/duplicates`);
     expect(r.status).toBe(200);
+    // Without name, contact, source or dates: how it matches, and who handles it (routing).
     expect(r.body.leads[0]).toEqual({
       hidden: true,
       strength: 'EXACT',
-      reasons: ['PHONE', 'NAME_AND_COMPANY'],
+      reasons: ['PHONE', 'NAME', 'NAME_AND_COMPANY'],
+      differentName: false,
+      kind: 'POTENTIAL_DUPLICATE',
+      relation: 'EARLIER',
+      handledBy: { id: sam, fullName: 'Sam Sales' },
     });
     expect(JSON.stringify(r.body)).not.toMatch(
       new RegExp(`${first}|IndiaMART|CUST-000001|2026-10-01`),
     );
     expect(r.body.customers).toEqual([
-      { hidden: true, reasons: ['COMPANY_NAME', 'PHONE'] },
+      {
+        hidden: true,
+        mappedTo: [],
+        link: 'MATCH',
+        strength: 'STRONG',
+        reasons: ['NAME', 'PHONE'],
+      },
     ]);
     // and Sam's lead stays out of reach
     expect((await ctx.as(tara).get(`/leads/${first}/duplicates`)).status).toBe(

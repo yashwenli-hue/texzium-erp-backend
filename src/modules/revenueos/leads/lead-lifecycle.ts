@@ -8,9 +8,18 @@ export const LEAD_DEACTIVATED_MESSAGE =
 
 // Lead payload returned by deactivate/reactivate. The assignee and the person
 // who deactivated it are exposed as { id, fullName } only.
+// The product an enquiry is about, as shown with the lead.
+export const LEAD_PRODUCT_SELECT = {
+  id: true,
+  sku: true,
+  productName: true,
+  category: true,
+} satisfies Prisma.InventoryItemSelect;
+
 export const LEAD_LIFECYCLE_INCLUDE = {
   source: true,
   assignedTo: { select: LEAD_ACTOR_SELECT },
+  inventoryItem: { select: LEAD_PRODUCT_SELECT },
   deactivatedBy: { select: LEAD_ACTOR_SELECT },
 } satisfies Prisma.LeadInclude;
 

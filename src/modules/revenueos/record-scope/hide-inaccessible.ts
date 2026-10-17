@@ -1,11 +1,16 @@
 import { ConflictException } from '@nestjs/common';
 
+import { PrismaClient } from '@prisma/client';
+
+import { customerSalespeople } from '../customer-master/customer-relationship';
 import { RecordScope, isVisible } from './record-scope';
 
 // A refusal that names an existing customer (duplicate GSTIN, PAN or name) must not show
 // that customer to someone who may not see it. The refusal itself stands - it is what
 // prevents the duplicate - but its name, code and id are taken out and the person is told
-// to ask for access instead.
+// to ask for access instead. The salesperson who looks after that customer is named
+// (mappedTo), so the enquiry can be routed to them - knowing who looks after it does not
+// give access to it.
 
 const HIDDEN_MESSAGE: Record<string, string> = {
   DUPLICATE_GSTIN:
@@ -18,7 +23,7 @@ const HIDDEN_MESSAGE: Record<string, string> = {
 const FALLBACK =
   'This matches a customer you do not have access to. Ask an administrator for access.';
 
-type Db = Parameters<typeof isVisible>[0];
+type Db = Parameters<typeof isVisible>[0] & Pick<PrismaClient, 'opportunity'>;
 
 export async function hideInaccessibleCustomer<T>(
   db: Db,
@@ -45,10 +50,13 @@ export async function hideInaccessibleCustomer<T>(
     const { existing: _hidden, ...rest } = body;
     void _hidden;
     const code = typeof rest.code === 'string' ? rest.code : '';
+    const mappedTo =
+      (await customerSalespeople(db, [customerId])).get(customerId) ?? [];
     throw new ConflictException({
       ...rest,
       message: HIDDEN_MESSAGE[code] ?? FALLBACK,
       existingHidden: true,
+      mappedTo,
     });
   }
 }

@@ -1,3 +1,7 @@
+import {
+  LEAD_STAGE_KEYS,
+  LeadStage,
+} from '../../lead-assignments/lead-transitions';
 import { LeadStatus } from '@prisma/client';
 import { Transform } from 'class-transformer';
 import {
@@ -70,6 +74,12 @@ export class SearchLeadsQueryDto {
   @IsEnum(LeadStatus, { each: true })
   status?: LeadStatus[];
 
+  /** Lifecycle stages (lead-transitions.ts LEAD_STAGES), each a group of statuses. */
+  @IsOptional()
+  @Transform(list)
+  @IsIn(LEAD_STAGE_KEYS, { each: true })
+  stage?: LeadStage[];
+
   @IsOptional()
   @IsIn(['assigned', 'unassigned'])
   assignment?: 'assigned' | 'unassigned';
@@ -96,6 +106,12 @@ export class SearchLeadsQueryDto {
   @IsString({ each: true })
   @MaxLength(100, { each: true })
   source?: string[];
+
+  /** Inventory item ids of the product an enquiry is about; NOT_SET for none recorded. */
+  @IsOptional()
+  @Transform(list)
+  @Matches(/^([0-9a-fA-F-]{36}|NOT_SET)$/, { each: true })
+  product?: string[];
 
   /** ISO country codes; NOT_SET for leads without a location. */
   @IsOptional()

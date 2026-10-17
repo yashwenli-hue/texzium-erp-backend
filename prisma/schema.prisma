@@ -312,6 +312,11 @@ model Lead {
   source   LeadSource @relation(fields: [sourceId], references: [id])
 
   assignedToId String?
+
+  // The product or machine the enquiry is about (an existing inventory item), when known.
+  // Each enquiry keeps its own: a later enquiry from the same person never changes it.
+  inventoryItemId String?
+  inventoryItem   InventoryItem? @relation(fields: [inventoryItemId], references: [id], onDelete: SetNull)
   assignedTo   User?   @relation(fields: [assignedToId], references: [id])
 
   // Where the lead is. All three are null when nothing was recorded (every lead
@@ -347,6 +352,7 @@ model Lead {
   opportunities Opportunity[]
 
   @@index([deactivatedById])
+  @@index([inventoryItemId])
 }
 
 model LeadNote {
@@ -653,6 +659,7 @@ model InventoryItem {
   salesOrders      SalesOrder[]
   WarehousePutaway WarehousePutaway[]
   productTags      ProductTag[]
+  leads            Lead[]
 
   transactions InventoryTransaction[]
   balances     InventoryBalance[]

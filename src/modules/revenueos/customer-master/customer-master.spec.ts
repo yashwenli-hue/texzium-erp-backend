@@ -328,6 +328,8 @@ function makeDb() {
           select,
         ),
     },
+    // Who looks after a matching customer (customer-relationship.ts): no opportunities here.
+    opportunity: { findMany: async () => [] },
     customer: {
       findUnique: async ({ where, select, include }: any) => {
         const row = state.customers.find((c) => c.id === where.id);
@@ -917,6 +919,7 @@ describe('Customer master over HTTP', () => {
           isActive: true,
           reasons: ['NAME'],
           strength: 'STRONG',
+          mappedTo: [],
         },
       ]);
       expect(res.body.warnings).toEqual([
@@ -927,6 +930,7 @@ describe('Customer master over HTTP', () => {
           isActive: true,
           reasons: ['PHONE', 'EMAIL'],
           strength: 'POSSIBLE',
+          mappedTo: [],
         },
       ]);
     });

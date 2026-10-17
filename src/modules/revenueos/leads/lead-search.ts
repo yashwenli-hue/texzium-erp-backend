@@ -4,6 +4,11 @@ import { RecordScope, leadVisibleSql } from '../record-scope/record-scope';
 import { LEAD_BEFORE_QUALIFICATION } from '../lead-assignments/lead-transitions';
 import { NOT_SET, SearchLeadsQueryDto } from './dto/search-leads-query.dto';
 import { LEAD_ACTOR_SELECT } from './lead-history.include';
+import { LEAD_PRODUCT_SELECT } from './lead-lifecycle';
+import {
+  LEAD_STAGE_KEYS,
+  LEAD_STAGES,
+} from '../lead-assignments/lead-transitions';
 
 // Server-side lead search: one WHERE built from the query, applied to the page, the total
 // and every facet, always inside the caller's record scope (record-scope.ts). Nothing
@@ -79,12 +84,23 @@ const FOLLOWUP_DAYS = Prisma.sql`(
      AT TIME ZONE 'UTC' AT TIME ZONE ${TZ})::date
   - (now() AT TIME ZONE ${TZ})::date)`;
 
+// The lifecycle stage of a lead (LEAD_STAGES), for the stage facet.
+const STAGE_OF = Prisma.sql`(CASE ${Prisma.join(
+  LEAD_STAGE_KEYS.map(
+    (k) =>
+      Prisma.sql`WHEN l."status"::text IN (${Prisma.join([...LEAD_STAGES[k]])}) THEN ${k}`,
+  ),
+  ' ',
+)} END)`;
+
 type Dim =
   | 'status'
+  | 'stage'
   | 'assignment'
   | 'presales'
   | 'sales'
   | 'source'
+  | 'product'
   | 'country'
   | 'state'
   | 'city'
@@ -154,6 +170,19 @@ function conditions(
     c.push(
       Prisma.sql`EXISTS (SELECT 1 FROM "LeadSource" s WHERE s."id" = l."sourceId" AND s."name" IN (${sqlList(query.source)}))`,
     );
+  if (except !== 'stage' && query.stage?.length) {
+    const statuses = [...new Set(query.stage.flatMap((s) => LEAD_STAGES[s]))];
+    c.push(Prisma.sql`l."status"::text IN (${sqlList(statuses)})`);
+  }
+  if (except !== 'product' && query.product?.length) {
+    const ids = query.product.filter((x) => x !== NOT_SET);
+    const parts: Prisma.Sql[] = [];
+    if (ids.length)
+      parts.push(Prisma.sql`l."inventoryItemId" IN (${sqlList(ids)})`);
+    if (query.product.includes(NOT_SET))
+      parts.push(Prisma.sql`l."inventoryItemId" IS NULL`);
+    c.push(Prisma.sql`(${Prisma.join(parts, ' OR ')})`);
+  }
   if (except !== 'country' && query.country?.length) {
     const codes = query.country.filter((x) => x !== NOT_SET);
     const parts: Prisma.Sql[] = [];
@@ -201,7 +230,7 @@ type Extra = {
   lastCall: string | null;
 };
 type Pair = { leadId: string; userId: string };
-type Db = Pick<PrismaClient, '$queryRaw' | 'lead' | 'user'>;
+type Db = Pick<PrismaClient, '$queryRaw' | 'lead' | 'user' | 'inventoryItem'>;
 
 async function facet(
   db: Db,
@@ -253,6 +282,7 @@ export async function searchLeads(
       include: {
         source: true,
         assignedTo: { select: LEAD_ACTOR_SELECT },
+        inventoryItem: { select: LEAD_PRODUCT_SELECT },
         followups: true,
         opportunities: true,
       },
@@ -270,10 +300,12 @@ export async function searchLeads(
 
   const [
     status,
+    stage,
     assignment,
     presales,
     sales,
     source,
+    product,
     country,
     state,
     city,
@@ -281,6 +313,7 @@ export async function searchLeads(
     lastCall,
   ] = await Promise.all([
     facet(db, query, scope, 'status', Prisma.sql`l."status"::text`),
+    facet(db, query, scope, 'stage', STAGE_OF),
     facet(
       db,
       query,
@@ -301,6 +334,13 @@ export async function searchLeads(
       scope,
       'source',
       Prisma.sql`(SELECT s."name" FROM "LeadSource" s WHERE s."id" = l."sourceId")`,
+    ),
+    facet(
+      db,
+      query,
+      scope,
+      'product',
+      Prisma.sql`COALESCE(l."inventoryItemId", ${NOT_SET})`,
     ),
     facet(
       db,
@@ -345,6 +385,22 @@ export async function searchLeads(
   const person = (id: string | null | undefined) =>
     id ? (people.get(id) ?? { id, fullName: null }) : null;
 
+  // Names of the products the facet mentions (existing inventory items only).
+  const products = new Map(
+    (
+      await db.inventoryItem.findMany({
+        where: {
+          id: {
+            in: product
+              .map((p) => p.value)
+              .filter((v): v is string => !!v && v !== NOT_SET),
+          },
+        },
+        select: LEAD_PRODUCT_SELECT,
+      })
+    ).map((i) => [i.id, i] as const),
+  );
+
   const byId = new Map(rows.map((r) => [r.id, r]));
   const extra = new Map(extras.map((e) => [e.id, e]));
   const items = pageIds
@@ -366,12 +422,20 @@ export async function searchLeads(
     pageSize,
     facets: {
       status,
+      stage: stage.filter((s) => s.value),
       assignment,
       presales: presales.map((p) => ({ ...p, person: person(p.value) })),
       sales: sales
         .filter((s) => s.value)
         .map((s) => ({ ...s, person: person(s.value) })),
       source,
+      product: product.map((p) => ({
+        ...p,
+        item:
+          p.value && p.value !== NOT_SET
+            ? (products.get(p.value) ?? null)
+            : null,
+      })),
       country,
       state: state.filter((s) => s.value),
       city: city.filter((s) => s.value),

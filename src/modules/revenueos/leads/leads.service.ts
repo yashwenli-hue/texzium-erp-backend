@@ -15,7 +15,8 @@ import { UpdateLeadDto } from './dto/update-lead.dto';
 import { CreateLeadActivityDto } from './dto/create-lead-activity.dto';
 import { SearchLeadsQueryDto } from './dto/search-leads-query.dto';
 import { searchLeads } from './lead-search';
-import { findLeadDuplicates } from './lead-duplicates';
+import { findLeadDuplicates, ReturningOptions } from './lead-duplicates';
+import { GSTIN_PATTERN } from '../customer-gst/customer-gst-values';
 import { LeadDuplicateCheckQueryDto } from './dto/lead-duplicate-check.dto';
 import {
   LEAD_ACTOR_SELECT,
@@ -24,6 +25,7 @@ import {
 import {
   LEAD_DEACTIVATED_MESSAGE,
   LEAD_LIFECYCLE_INCLUDE,
+  LEAD_PRODUCT_SELECT,
   lockActiveLeadForUpdate,
   lockLeadForDeactivation,
 } from './lead-lifecycle';
@@ -69,6 +71,8 @@ export class LeadsService {
 
     assertLeadLocation(location);
 
+    if (data.inventoryItemId) await this.assertProduct(data.inventoryItemId);
+
     const lead = await this.prisma.lead.create({
       data: {
         leadCode: data.leadCode,
@@ -78,6 +82,7 @@ export class LeadsService {
         phone: data.phone,
         alternatePhone: data.alternatePhone,
         sourceId: data.sourceId,
+        inventoryItemId: data.inventoryItemId ?? null,
         country: location.country,
         state: location.state,
         city: location.city,
@@ -85,6 +90,7 @@ export class LeadsService {
       include: {
         source: true,
         assignedTo: { select: LEAD_ACTOR_SELECT },
+        inventoryItem: { select: LEAD_PRODUCT_SELECT },
       },
     });
 
@@ -100,12 +106,22 @@ export class LeadsService {
     return lead;
   }
 
+  // A product given for a lead must be an existing inventory item (nothing is created).
+  private async assertProduct(id: string) {
+    const item = await this.prisma.inventoryItem.findUnique({
+      where: { id },
+      select: { id: true },
+    });
+    if (!item) throw new NotFoundException('Product not found.');
+  }
+
   async findAll(includeInactive = false, scope: RecordScope = ALL_RECORDS) {
     return this.prisma.lead.findMany({
       where: and<Prisma.LeadWhereInput>(includeInactive ? undefined : { isActive: true }, leadWhere(scope)),
       include: {
         source: true,
         assignedTo: { select: LEAD_ACTOR_SELECT },
+        inventoryItem: { select: LEAD_PRODUCT_SELECT },
         followups: true,
         opportunities: true,
       },
@@ -122,18 +138,28 @@ export class LeadsService {
   }
 
   // Likely duplicates of a lead being entered (lead-duplicates.ts).
-  async duplicateCheck(query: LeadDuplicateCheckQueryDto, scope: RecordScope) {
-    return findLeadDuplicates(this.prisma, query, scope);
+  async duplicateCheck(
+    query: LeadDuplicateCheckQueryDto,
+    scope: RecordScope,
+    options: ReturningOptions = { canViewCustomers: true },
+  ) {
+    const gstin =
+      query.gstin && GSTIN_PATTERN.test(query.gstin) ? query.gstin : null;
+    return findLeadDuplicates(this.prisma, { ...query, gstin }, scope, options);
   }
 
   // Likely duplicates of an existing lead, each marked earlier or later than it.
-  async duplicatesOf(id: string, scope: RecordScope) {
+  async duplicatesOf(
+    id: string,
+    scope: RecordScope,
+    options: ReturningOptions = { canViewCustomers: true },
+  ) {
     const lead = await this.prisma.lead.findUnique({
       where: { id },
-      select: { phone: true, alternatePhone: true, email: true, customerName: true, companyName: true, city: true, createdAt: true },
+      select: { phone: true, alternatePhone: true, email: true, customerName: true, companyName: true, city: true, createdAt: true, inventoryItemId: true },
     });
     if (!lead) throw new NotFoundException('Lead not found.');
-    return findLeadDuplicates(this.prisma, { ...lead, excludeLeadId: id }, scope);
+    return findLeadDuplicates(this.prisma, { ...lead, excludeLeadId: id }, scope, options);
   }
 
   async findOne(id: string) {
@@ -145,6 +171,7 @@ export class LeadsService {
         include: {
           source: true,
           assignedTo: { select: LEAD_ACTOR_SELECT },
+          inventoryItem: { select: LEAD_PRODUCT_SELECT },
           deactivatedBy: { select: LEAD_ACTOR_SELECT },
           ...LEAD_HISTORY_INCLUDE,
           followups: {
@@ -289,6 +316,8 @@ export class LeadsService {
       }
     }
 
+    if (data.inventoryItemId) await this.assertProduct(data.inventoryItemId);
+
     // The location is judged as a whole: what is stored with the change applied.
     // A field that is absent keeps its value, null clears it. A lead that has no
     // location and is edited without one stays valid.
@@ -320,6 +349,7 @@ export class LeadsService {
         include: {
           source: true,
           assignedTo: { select: LEAD_ACTOR_SELECT },
+          inventoryItem: { select: LEAD_PRODUCT_SELECT },
         },
       });
 

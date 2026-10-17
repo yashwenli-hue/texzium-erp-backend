@@ -42,6 +42,11 @@ export class UpdateLeadDto {
   @IsUUID()
   sourceId?: string;
 
+  // The product or machine the enquiry is about; null clears it.
+  @IsOptional()
+  @IsUUID()
+  inventoryItemId?: string | null;
+
   // A field that is absent keeps what is stored; null (or blank) clears it. The
   // service checks the location as a whole after applying the change, so moving a
   // lead out of India must clear the state in the same request.
