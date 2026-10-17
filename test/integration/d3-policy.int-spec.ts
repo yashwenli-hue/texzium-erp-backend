@@ -376,6 +376,22 @@ describe('Finance', () => {
       '/executive-dashboard',
     ])
       expect([url, (await ctx.as(fiona).get(url)).status]).toEqual([url, 200]);
+    // Money reports (invoice totals) are finance figures; pipeline reports (leads,
+    // opportunities, quotations) need revenue.view.all, which Finance does not hold.
+    for (const url of [
+      '/sales-reports/revenue-summary',
+      '/sales-reports/customer-revenue',
+      '/sales-reports/product-revenue',
+      '/sales-reports/category-revenue',
+    ])
+      expect([url, (await ctx.as(fiona).get(url)).status]).toEqual([url, 200]);
+    for (const url of [
+      '/sales-reports/funnel',
+      '/sales-reports/lead-conversion',
+      '/sales-reports/quotation-conversion',
+      '/sales-reports/lost-opportunities',
+    ])
+      expect([url, (await ctx.as(fiona).get(url)).status]).toEqual([url, 403]);
     // No leads/customers codes: the pipeline and the customer master stay closed.
     for (const url of [
       '/leads',
@@ -398,6 +414,9 @@ describe('Finance', () => {
     ).toBe(404);
     expect(
       (await ctx.as(finn).get('/collections-dashboard/summary')).status,
+    ).toBe(403);
+    expect(
+      (await ctx.as(finn).get('/sales-reports/revenue-summary')).status,
     ).toBe(403);
   });
 
@@ -423,6 +442,7 @@ describe('HR and other roles', () => {
       '/customer-ledgers',
       '/executive-dashboard',
       '/sales-reports/funnel',
+      '/sales-reports/revenue-summary',
     ])
       expect([url, (await ctx.as(hari).get(url)).status]).toEqual([url, 403]);
   });

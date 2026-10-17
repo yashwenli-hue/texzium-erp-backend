@@ -21,6 +21,7 @@ import { PrismaService } from '../database/prisma.service';
 import { PERMISSIONS_KEY } from '../decorators/permissions.decorator';
 import { IS_PUBLIC_KEY, PUBLIC_ROUTES } from '../decorators/public.decorator';
 import { DataDeletionPurgeWorker } from '../../modules/revenueos/data-governance/data-deletion-purge.worker';
+import { FinanceVisibilityGuard } from '../../modules/revenueos/record-scope/finance-visibility.guard';
 import { PermissionsGuard } from './permissions.guard';
 
 // Default-deny authentication, checked on the WHOLE application: the real AppModule with
@@ -338,6 +339,9 @@ describe('Default-deny authentication across every route', () => {
           ];
 
           if (!guards.includes(PermissionsGuard)) return false;
+          // Finance visibility is a declared requirement too (finance.view.all, or
+          // revenue.view.all): FinanceVisibilityGuard checks it instead of a code.
+          if (guards.includes(FinanceVisibilityGuard)) return false;
 
           const declared = [
             ...(Reflect.getMetadata(PERMISSIONS_KEY, h.controller) ?? []),
