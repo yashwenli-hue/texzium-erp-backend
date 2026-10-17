@@ -232,6 +232,19 @@ describe('content library: who may do what (real JWT and permission guards)', ()
   const tmpFiles = async () =>
     (await fs.readdir(path.join(root, 'tmp')).catch(() => [])).length;
 
+  // The interceptor removes a refused upload's temporary file after the response has been
+  // sent (fire-and-forget), so on a busy machine it can still be there a moment later.
+  // Waits for the directory to empty - up to 2 s - and returns what is left.
+  const tmpFilesSettled = async () => {
+    const until = Date.now() + 2000;
+    let left = await tmpFiles();
+    while (left > 0 && Date.now() < until) {
+      await new Promise((r) => setTimeout(r, 20));
+      left = await tmpFiles();
+    }
+    return left;
+  };
+
   it('every content route answers 401 without a token, before anything is read or stored', async () => {
     expect(ROUTES).toHaveLength(13);
     for (const route of ROUTES) {
@@ -281,7 +294,7 @@ describe('content library: who may do what (real JWT and permission guards)', ()
       .field('kind', 'AUDIO')
       .attach('file', PDF, 'a.pdf');
     expect(res.status).toBe(400);
-    expect(await tmpFiles()).toBe(0);
+    expect(await tmpFilesSettled()).toBe(0);
     expect(touched).toEqual([]);
   });
 
