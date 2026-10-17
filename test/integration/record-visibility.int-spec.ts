@@ -1,7 +1,15 @@
 /* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-argument -- supertest response bodies are loosely typed */
-import { PrismaClient } from '@prisma/client';
-
-import { Ctx, lead, reset, role, startApp, stopApp, user } from './harness';
+import {
+  Chain,
+  chain,
+  Ctx,
+  lead,
+  reset,
+  role,
+  startApp,
+  stopApp,
+  user,
+} from './harness';
 
 // Backend-enforced record visibility (record-scope.ts) on a real database, with two
 // salespeople working different customers, a pre-sales person who handed a lead over, and
@@ -39,107 +47,12 @@ const WORK = [
   'salesorders.commercialapproval.view',
 ];
 let admin: string, sam: string, tara: string, priya: string;
-type Chain = {
-  lead: string;
-  opp: string;
-  customer: string;
-  quotation: string;
-  proforma: string;
-  order: string;
-  invoice: string;
-  gst: string;
-};
 let samChain: Chain,
   taraChain: Chain,
   handedLead: string,
   sharedCustomer: string,
   samOppOnShared: string,
   taraOppOnShared: string;
-
-async function chain(
-  db: PrismaClient,
-  owner: string,
-  name: string,
-  gstin: string,
-): Promise<Chain> {
-  const l = await lead(db, {
-    customerName: `${name} contact`,
-    companyName: name,
-    status: 'SALES_ASSIGNED',
-    assignedToId: owner,
-  });
-  const c = await db.customer.create({
-    data: { customerCode: `CUST-${gstin.slice(2, 7)}`, customerName: name },
-  });
-  const g = await db.customerGSTRegistration.create({
-    data: {
-      customerId: c.id,
-      gstin,
-      legalName: name,
-      stateCode: '27',
-      stateName: 'Maharashtra',
-      addressLine1: 'x',
-      city: 'Pune',
-      pincode: '411001',
-      isDefault: true,
-    },
-  });
-  const o = await db.opportunity.create({
-    data: {
-      leadId: l.id,
-      customerId: c.id,
-      title: `${name} deal`,
-      expectedValue: 100000,
-      probability: 50,
-      expectedCloseDate: new Date('2026-12-31'),
-    },
-  });
-  const q = await db.quotation.create({
-    data: {
-      opportunityId: o.id,
-      quoteDate: new Date(),
-      totalAmount: 118000,
-      buyerGstId: g.id,
-    },
-  });
-  const p = await db.proformaInvoice.create({
-    data: { quotationId: q.id, issueDate: new Date(), totalAmount: 118000 },
-  });
-  const so = await db.salesOrder.create({
-    data: {
-      proformaInvoiceId: p.id,
-      orderDate: new Date(),
-      totalAmount: 118000,
-    },
-  });
-  const inv = await db.salesInvoice.create({
-    data: {
-      salesOrderId: so.id,
-      invoiceDate: new Date(),
-      taxableAmount: 100000,
-      gstAmount: 18000,
-      totalAmount: 118000,
-    },
-  });
-  await db.accountsReceivable.create({
-    data: {
-      salesInvoiceId: inv.id,
-      dueDate: new Date(),
-      outstandingAmount: 118000,
-      balanceAmount: 118000,
-    },
-  });
-  return {
-    lead: l.id,
-    opp: o.id,
-    customer: c.id,
-    quotation: q.id,
-    proforma: p.id,
-    order: so.id,
-    invoice: inv.id,
-    gst: g.id,
-  };
-}
 
 beforeAll(async () => {
   ctx = await startApp();
@@ -430,6 +343,8 @@ describe('duplicate checks and refusals do not reveal a customer the caller cann
         hidden: true,
         reasons: ['GSTIN', 'PAN', 'NAME'],
         strength: 'EXACT',
+        // who looks after it (routing), never the customer itself
+        mappedTo: [{ id: tara, fullName: 'Tara Sales' }],
       },
     ]);
     expect(JSON.stringify(r.body)).not.toContain(taraChain.customer);

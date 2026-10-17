@@ -6,6 +6,7 @@ import { Prisma, PrismaClient } from '@prisma/client';
 import request from 'supertest';
 
 import { AppModule } from '../../src/app.module';
+import { PrismaService } from '../../src/core/database/prisma.service';
 
 // Shared set-up for the integration tests: the whole application over HTTP, the real
 // database client, a reset that empties the scratch database, and a seed of people,
@@ -72,9 +73,22 @@ export async function startApp(): Promise<Ctx> {
   return { app, db, http, token, as };
 }
 
+// Every suite runs in the same process (--runInBand) and the database cluster is shared
+// with other databases, so each suite closes ALL its connections when it ends. A
+// PrismaService does not disconnect when the app closes, and several modules provide
+// their own instance besides the global one: every instance is tracked here.
+const openPrisma = new Set<PrismaService>();
+const connectPrisma = PrismaService.prototype.onModuleInit;
+PrismaService.prototype.onModuleInit = async function (this: PrismaService) {
+  openPrisma.add(this);
+  return connectPrisma.call(this);
+};
+
 export async function stopApp(ctx: Ctx | undefined) {
   if (!ctx) return;
   await ctx.app.close();
+  for (const client of openPrisma) await client.$disconnect();
+  openPrisma.clear();
   await ctx.db.$disconnect();
 }
 
@@ -182,4 +196,102 @@ export async function lead(
   return db.lead.create({
     data: { phone: '9876500000', sourceId: s?.id ?? data.sourceId!, ...data },
   });
+}
+
+/** A lead's whole sales chain, owned by `owner`: lead → opportunity → customer (with a GST
+ * registration) → quotation → Proforma → sales order → invoice → receivable. */
+export type Chain = {
+  lead: string;
+  opp: string;
+  customer: string;
+  quotation: string;
+  proforma: string;
+  order: string;
+  invoice: string;
+  gst: string;
+};
+
+export async function chain(
+  db: PrismaClient,
+  owner: string,
+  name: string,
+  gstin: string,
+): Promise<Chain> {
+  const l = await lead(db, {
+    customerName: `${name} contact`,
+    companyName: name,
+    status: 'SALES_ASSIGNED',
+    assignedToId: owner,
+  });
+  const c = await db.customer.create({
+    data: { customerCode: `CUST-${gstin.slice(2, 7)}`, customerName: name },
+  });
+  const g = await db.customerGSTRegistration.create({
+    data: {
+      customerId: c.id,
+      gstin,
+      legalName: name,
+      stateCode: '27',
+      stateName: 'Maharashtra',
+      addressLine1: 'x',
+      city: 'Pune',
+      pincode: '411001',
+      isDefault: true,
+    },
+  });
+  const o = await db.opportunity.create({
+    data: {
+      leadId: l.id,
+      customerId: c.id,
+      title: `${name} deal`,
+      expectedValue: 100000,
+      probability: 50,
+      expectedCloseDate: new Date('2026-12-31'),
+    },
+  });
+  const q = await db.quotation.create({
+    data: {
+      opportunityId: o.id,
+      quoteDate: new Date(),
+      totalAmount: 118000,
+      buyerGstId: g.id,
+    },
+  });
+  const p = await db.proformaInvoice.create({
+    data: { quotationId: q.id, issueDate: new Date(), totalAmount: 118000 },
+  });
+  const so = await db.salesOrder.create({
+    data: {
+      proformaInvoiceId: p.id,
+      orderDate: new Date(),
+      totalAmount: 118000,
+    },
+  });
+  const inv = await db.salesInvoice.create({
+    data: {
+      salesOrderId: so.id,
+      invoiceDate: new Date(),
+      taxableAmount: 100000,
+      gstAmount: 18000,
+      totalAmount: 118000,
+    },
+  });
+  await db.accountsReceivable.create({
+    data: {
+      salesInvoiceId: inv.id,
+      dueDate: new Date(),
+      outstandingAmount: 118000,
+      balanceAmount: 118000,
+    },
+  });
+  return {
+    lead: l.id,
+    opp: o.id,
+    customer: c.id,
+    quotation: q.id,
+    proforma: p.id,
+    order: so.id,
+    invoice: inv.id,
+    gst: g.id,
+  };
 }

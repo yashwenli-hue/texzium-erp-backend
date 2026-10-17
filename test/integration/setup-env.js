@@ -23,7 +23,10 @@ try {
 if (!/^rev_[a-z0-9_]+$/.test(name)) {
   throw new Error('INTEGRATION_DATABASE_URL must name a scratch database (rev_...).');
 }
-process.env.DATABASE_URL = url;
+// A small pool per suite: the cluster is shared with other databases (max_connections).
+const pooled = new URL(url);
+if (!pooled.searchParams.has('connection_limit')) pooled.searchParams.set('connection_limit', '3');
+process.env.DATABASE_URL = pooled.toString();
 process.env.CONTENT_STORAGE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'int-content-'));
 process.env.DATA_DELETION_AUTOPURGE = 'off';
 process.env.JWT_SECRET = crypto.randomBytes(24).toString('base64url');
