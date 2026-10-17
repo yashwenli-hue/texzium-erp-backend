@@ -2,7 +2,10 @@ import { ConflictException } from '@nestjs/common';
 
 import { PrismaClient } from '@prisma/client';
 
-import { customerSalespeople } from '../customer-master/customer-relationship';
+import {
+  customerCreators,
+  customerSalespeople,
+} from '../customer-master/customer-relationship';
 import { RecordScope, isVisible } from './record-scope';
 
 // A refusal that names an existing customer (duplicate GSTIN, PAN or name) must not show
@@ -23,7 +26,8 @@ const HIDDEN_MESSAGE: Record<string, string> = {
 const FALLBACK =
   'This matches a customer you do not have access to. Ask an administrator for access.';
 
-type Db = Parameters<typeof isVisible>[0] & Pick<PrismaClient, 'opportunity'>;
+type Db = Parameters<typeof isVisible>[0] &
+  Pick<PrismaClient, 'opportunity' | 'customerEvent'>;
 
 export async function hideInaccessibleCustomer<T>(
   db: Db,
@@ -33,7 +37,7 @@ export async function hideInaccessibleCustomer<T>(
   try {
     return await work();
   } catch (error) {
-    if (scope.all || !(error instanceof ConflictException)) throw error;
+    if (!(error instanceof ConflictException)) throw error;
     const body = error.getResponse() as Record<string, unknown>;
     const existing =
       body && typeof body === 'object'
@@ -45,13 +49,19 @@ export async function hideInaccessibleCustomer<T>(
         : typeof existing?.id === 'string'
           ? existing.id
           : null;
-    if (!customerId || (await isVisible(db, scope, 'customer', customerId)))
-      throw error;
+    if (!customerId) throw error;
+    const mappedTo =
+      (await customerSalespeople(db, [customerId])).get(customerId) ?? [];
+    // A customer the caller may see: the refusal names it as before, and also who looks
+    // after it and who created it (two different facts; either may be unknown).
+    if (scope.all || (await isVisible(db, scope, 'customer', customerId))) {
+      const createdBy =
+        (await customerCreators(db, [customerId])).get(customerId) ?? null;
+      throw new ConflictException({ ...body, mappedTo, createdBy });
+    }
     const { existing: _hidden, ...rest } = body;
     void _hidden;
     const code = typeof rest.code === 'string' ? rest.code : '';
-    const mappedTo =
-      (await customerSalespeople(db, [customerId])).get(customerId) ?? [];
     throw new ConflictException({
       ...rest,
       message: HIDDEN_MESSAGE[code] ?? FALLBACK,

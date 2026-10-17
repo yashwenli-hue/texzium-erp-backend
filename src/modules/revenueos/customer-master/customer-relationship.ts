@@ -12,6 +12,34 @@ import { PrismaClient } from '@prisma/client';
 
 export type MappedSalesperson = { id: string; fullName: string };
 
+// Who CREATED a customer is a different fact from who looks after it: the actor of its
+// CUSTOMER_CREATED event, when one was recorded (customers created before actors were
+// recorded, or by the system, have none). It is never used as the owner, and it is only
+// given to someone who may see the customer itself.
+export async function customerCreators(
+  db: Pick<PrismaClient, 'customerEvent'>,
+  customerIds: readonly string[],
+): Promise<Map<string, MappedSalesperson>> {
+  const ids = [...new Set(customerIds)].filter((x) => !!x);
+  const out = new Map<string, MappedSalesperson>();
+  if (!ids.length) return out;
+  const rows = await db.customerEvent.findMany({
+    where: {
+      customerId: { in: ids },
+      action: 'CUSTOMER_CREATED',
+      actorId: { not: null },
+    },
+    orderBy: [{ occurredAt: 'asc' }, { id: 'asc' }],
+    select: {
+      customerId: true,
+      actor: { select: { id: true, fullName: true } },
+    },
+  });
+  for (const r of rows)
+    if (r.actor && !out.has(r.customerId)) out.set(r.customerId, r.actor);
+  return out;
+}
+
 type Db = Pick<PrismaClient, 'opportunity'>;
 
 export async function customerSalespeople(

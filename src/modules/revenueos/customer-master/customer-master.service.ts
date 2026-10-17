@@ -1,4 +1,4 @@
-import { customerSalespeople } from './customer-relationship';
+import { customerCreators, customerSalespeople } from './customer-relationship';
 import {
   BadRequestException,
   Injectable,
@@ -282,6 +282,11 @@ export class CustomerMasterService {
       this.prisma,
       matches.map((m) => m.id),
     );
+    // Who created it: only for a customer the caller may see (never for a hidden one).
+    const creators = await customerCreators(
+      this.prisma,
+      matches.filter((m) => !visible || visible.has(m.id)).map((m) => m.id),
+    );
     const present = (m: CustomerMatch) =>
       !visible || visible.has(m.id)
         ? {
@@ -292,6 +297,7 @@ export class CustomerMasterService {
             reasons: matchReasons(m),
             strength: matchStrength(m),
             mappedTo: mapped.get(m.id) ?? [],
+            createdBy: creators.get(m.id) ?? null,
           }
         : {
             id: null,

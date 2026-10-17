@@ -317,7 +317,11 @@ function makeDb() {
         return { count: rows.length };
       },
     },
+    // Who looks after / created a customer named in a conflict (customer-relationship.ts):
+    // no opportunities and no recorded creators here.
+    opportunity: { findMany: async () => [] },
     customerEvent: {
+      findMany: async () => [],
       create: async ({ data }: any) => {
         if (state.eventFailure) throw new Error('event failed');
         const row = { id: uid((counter += 1)), createdAt: new Date(), ...data };

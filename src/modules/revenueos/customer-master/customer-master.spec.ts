@@ -920,6 +920,7 @@ describe('Customer master over HTTP', () => {
           reasons: ['NAME'],
           strength: 'STRONG',
           mappedTo: [],
+          createdBy: null,
         },
       ]);
       expect(res.body.warnings).toEqual([
@@ -931,6 +932,7 @@ describe('Customer master over HTTP', () => {
           reasons: ['PHONE', 'EMAIL'],
           strength: 'POSSIBLE',
           mappedTo: [],
+          createdBy: null,
         },
       ]);
     });
