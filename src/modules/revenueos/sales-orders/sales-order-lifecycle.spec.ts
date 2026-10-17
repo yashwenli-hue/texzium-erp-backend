@@ -3271,7 +3271,19 @@ describe('Sales Order pre-dispatch lifecycle', () => {
       const gated = new Promise<void>((r) => {
         release = r;
       });
-      fake.gates['salesOrderAdvanceReceipt.create'] = () => gated;
+      // Ordered by events, not by fixed sleeps (which a loaded machine overruns): the
+      // receipt has read the status once it reaches the gate. Without the shared lock
+      // (the negative control) nothing can hold the cancellation up, so it is awaited
+      // before the receipt goes on; with the lock it waits for the receipt whatever the
+      // timing, and a short pause only lets it start waiting.
+      let arrived!: () => void;
+      const reached = new Promise<void>((r) => {
+        arrived = r;
+      });
+      fake.gates['salesOrderAdvanceReceipt.create'] = () => {
+        arrived();
+        return gated;
+      };
       const creating = http()
         .post('/sales-order-advance-receipt/create')
         .send({
@@ -3281,9 +3293,10 @@ describe('Sales Order pre-dispatch lifecycle', () => {
           paymentMode: 'UPI',
         })
         .then((r) => r);
-      await new Promise((r) => setTimeout(r, 20)); // it has read the status
+      await reached; // it has read the status
       const cancelling = cancel(ORDER, REASON).then((r) => r);
-      await new Promise((r) => setTimeout(r, 20));
+      if (fake.noSharedLock) await cancelling;
+      else await new Promise((r) => setTimeout(r, 20));
       release();
       return { creating: await creating, cancelling: await cancelling };
     };
