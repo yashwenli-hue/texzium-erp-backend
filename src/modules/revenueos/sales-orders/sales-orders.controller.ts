@@ -20,7 +20,7 @@ import {
   RecordScopeGuard,
   ScopedRecord,
 } from '../record-scope/record-scope.guard';
-import { scopeOf } from '../record-scope/record-scope';
+import { financeScopeOf } from '../record-scope/record-scope';
 
 @Controller('sales-orders')
 @UseGuards(JwtAuthGuard, PermissionsGuard, RecordScopeGuard)
@@ -34,10 +34,13 @@ export class SalesOrdersController {
     return this.salesOrdersService.create(body);
   }
 
+  // Finance works from the sales order (advance receipts, commercial approval,
+  // invoicing), so finance visibility sees every order; everyone else sees the
+  // orders under their own leads, as for the rest of the pipeline.
   @Get()
   @Permissions('salesorders.view')
   findAll(@Req() req: { user?: { id?: string; permissions?: unknown } }) {
-    return this.salesOrdersService.findAll(scopeOf(req.user));
+    return this.salesOrdersService.findAll(financeScopeOf(req.user));
   }
 
   // Cancels an order for good. The actor is the signed-in user.
@@ -54,7 +57,7 @@ export class SalesOrdersController {
   }
 
   @Get(':id/events')
-  @ScopedRecord('salesOrder', 'params.id')
+  @ScopedRecord('salesOrder', 'params.id', { finance: true })
   @Permissions('salesorders.view')
   findEvents(@Param('id') id: string) {
     return this.salesOrdersService.findEvents(id);

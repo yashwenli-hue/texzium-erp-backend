@@ -9,7 +9,7 @@ import {
   RecordScopeGuard,
   ScopedRecord,
 } from '../record-scope/record-scope.guard';
-import { scopeOf } from '../record-scope/record-scope';
+import { financeScopeOf } from '../record-scope/record-scope';
 
 @Controller('sales-order-payment-terms')
 @UseGuards(JwtAuthGuard, PermissionsGuard, RecordScopeGuard)
@@ -28,6 +28,6 @@ export class SalesOrderPaymentTermsController {
   @Get()
   @Permissions('salesorders.paymentterms.view')
   findAll(@Req() req: { user?: { id?: string; permissions?: unknown } }) {
-    return this.salesOrderPaymentTermsService.findAll(scopeOf(req.user));
+    return this.salesOrderPaymentTermsService.findAll(financeScopeOf(req.user));
   }
 }

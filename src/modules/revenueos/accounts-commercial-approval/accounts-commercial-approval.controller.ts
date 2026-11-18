@@ -20,7 +20,7 @@ import {
   RecordScopeGuard,
   ScopedRecord,
 } from '../record-scope/record-scope.guard';
-import { scopeOf } from '../record-scope/record-scope';
+import { financeScopeOf } from '../record-scope/record-scope';
 
 @Controller('accounts-commercial-approval')
 @UseGuards(JwtAuthGuard, PermissionsGuard, RecordScopeGuard)
@@ -30,8 +30,9 @@ export class AccountsCommercialApprovalController {
   ) {}
 
   // The approver is the signed-in user; it is never taken from the request body.
+  // Accounts approval is Finance's step: finance visibility reaches every order.
   @Post('create')
-  @ScopedRecord('salesOrder', 'body.salesOrderId')
+  @ScopedRecord('salesOrder', 'body.salesOrderId', { finance: true })
   @Permissions('salesorders.commercialapproval.approve')
   create(
     @Body() data: CreateAccountsCommercialApprovalDto,
@@ -42,7 +43,7 @@ export class AccountsCommercialApprovalController {
 
   // Undoes an approval. The actor is the signed-in user.
   @Post(':id/retract')
-  @ScopedRecord('commercialApproval', 'params.id')
+  @ScopedRecord('commercialApproval', 'params.id', { finance: true })
   @HttpCode(HttpStatus.OK)
   @Permissions('salesorders.commercialapproval.retract')
   retract(
@@ -60,6 +61,8 @@ export class AccountsCommercialApprovalController {
   @Get()
   @Permissions('salesorders.commercialapproval.view')
   findAll(@Req() req: { user?: { id?: string; permissions?: unknown } }) {
-    return this.accountsCommercialApprovalService.findAll(scopeOf(req.user));
+    return this.accountsCommercialApprovalService.findAll(
+      financeScopeOf(req.user),
+    );
   }
 }
