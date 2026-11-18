@@ -13,9 +13,12 @@
 --     but no leads, opportunities, quotations, proformas or customer master;
 --   * SALES_MANAGER sees everything (revenue.view.all, which includes finance
 --     visibility and the company-wide money totals);
---   * printing the tax-invoice PDF (invoices.document.view) is NOT granted: it stays
---     ungranted until the invoice print format is approved (see
---     20261016_tax_invoice_document_permission.sql); grant it then on /access.
+--   * issuing sales invoices (invoices.create) and printing the tax-invoice PDF
+--     (invoices.document.view) are NOT granted: both stay switched off until the
+--     accountant approves the invoice number and print format (see
+--     20261017_sales_invoice_create_grant.sql and
+--     20261016_tax_invoice_document_permission.sql). Grant them to FINANCE on /access
+--     after that approval.
 -- Record scope (who sees which record) is enforced by the backend: PRE_SALES and SALES
 -- see the leads assigned to them or that they worked on, and the deals, customers and
 -- documents under those leads. Needs the backend from commit "finance works from the
@@ -66,11 +69,11 @@ SELECT 'SALES_MANAGER', c, 'RevenueOS' FROM unnest(ARRAY[
   'leads.assign', 'leads.reopen', 'salesorders.cancel', 'revenue.view.all'
 ]) AS c;
 
--- FINANCE: advance receipts, commercial approval, invoicing and collections,
+-- FINANCE: advance receipts, commercial approval, invoices (view) and collections,
 -- with visibility of every financial record and sales order.
 INSERT INTO _grant (role_name, code, module)
 SELECT 'FINANCE', c, 'FinanceOS' FROM unnest(ARRAY[
-  'invoices.view', 'invoices.create',
+  'invoices.view',
   'collections.view', 'collections.record',
   'salesorders.view', 'salesorders.paymentterms.view',
   'salesorders.advancereceipts.view', 'salesorders.advancereceipts.create',
