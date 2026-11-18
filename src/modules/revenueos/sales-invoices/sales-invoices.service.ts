@@ -6,7 +6,14 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../../core/database/prisma.service';
 import { CreateSalesInvoiceDto } from './dto/create-sales-invoice.dto';
-import { SALES_ORDER_STATUS } from '../sales-orders/sales-order-lifecycle';
+import {
+  SALES_ORDER_NOT_FOUND_MESSAGE,
+  SALES_ORDER_STATUS,
+} from '../sales-orders/sales-order-lifecycle';
+import {
+  fromPaise,
+  toPaise,
+} from '../payment-collections/payment-collection-values';
 import { istCalendarDay } from '../../../core/dates/ist';
 import {
   DOCUMENT_NUMBER_TYPE,
@@ -28,6 +35,18 @@ import {
 
 export const ALREADY_INVOICED_MESSAGE =
   'This Sales Order has already been invoiced. An order is invoiced once, for its full value; no invoice was created.';
+export const DISPATCH_ORDER_NOT_FOUND_MESSAGE =
+  'Dispatch Order not found. No invoice was created.';
+export const DISPATCH_ORDER_OF_ANOTHER_ORDER_MESSAGE =
+  'This Dispatch Order is not a dispatch of this Sales Order. Invoice an order against its own Dispatch Order; no invoice was created.';
+export const DISPATCH_ORDER_NOT_DISPATCHED_MESSAGE =
+  'The Dispatch Order has not been dispatched yet. An order is invoiced once its Dispatch Order is DISPATCHED; no invoice was created.';
+export const FINANCE_SETUP_INCOMPLETE_MESSAGE =
+  'Finance master setup incomplete.';
+
+const RECEIVABLE_ACCOUNT_CODE = '1101';
+const SALES_ACCOUNT_CODE = '3001';
+const GST_OUTPUT_ACCOUNT_CODE = '5002';
 
 const sameName = (a: string, b: string) =>
   a.trim().replace(/\s+/g, ' ').toLowerCase() ===
@@ -39,25 +58,36 @@ export class SalesInvoicesService {
 
   async create(data: CreateSalesInvoiceDto) {
     try {
-      // 1. Validate Dispatch Order
+      // 1. The Dispatch Order exists.
       const dispatchOrder = await this.prisma.dispatchOrder.findUnique({
         where: { id: data.dispatchOrderId },
       });
 
-      if (!dispatchOrder || dispatchOrder.status !== 'DISPATCHED') {
-        throw new Error('Dispatch Order must be DISPATCHED');
+      if (!dispatchOrder) {
+        throw new NotFoundException(DISPATCH_ORDER_NOT_FOUND_MESSAGE);
       }
 
-      // 2. Validate Sales Order
+      // 2. The Sales Order exists.
       const salesOrder = await this.prisma.salesOrder.findUnique({
         where: { id: data.salesOrderId },
       });
 
       if (!salesOrder) {
-        throw new Error('Sales Order not found');
+        throw new NotFoundException(SALES_ORDER_NOT_FOUND_MESSAGE);
       }
 
-      // 3. The invoice date: a calendar day, not after today in India.
+      // 3. The Dispatch Order is this Sales Order's, and it has gone out. A
+      // dispatch of another order (or one not made from an order) cannot be
+      // invoiced against this one.
+      if (dispatchOrder.salesOrderId !== data.salesOrderId) {
+        throw new BadRequestException(DISPATCH_ORDER_OF_ANOTHER_ORDER_MESSAGE);
+      }
+
+      if (dispatchOrder.status !== 'DISPATCHED') {
+        throw new ConflictException(DISPATCH_ORDER_NOT_DISPATCHED_MESSAGE);
+      }
+
+      // 4. The invoice date: a calendar day, not after today in India.
       if (data.invoiceDate > istCalendarDay(new Date())) {
         throw new BadRequestException(
           'The invoice date cannot be later than today (India time).',
@@ -65,226 +95,238 @@ export class SalesInvoicesService {
       }
       const invoiceDate = new Date(`${data.invoiceDate}T00:00:00.000Z`);
 
-      // 4. The invoice itself, in one transaction that holds the order
-      // exclusively: the order is not cancelled and not invoiced yet, every
-      // amount is its Quotation's (nothing is added on top), the number is the
-      // next of the seller registration's series, and the invoice's lines are
-      // the priced lines it was sold with. If anything fails, nothing is
-      // written and the number is given back.
-      const { salesInvoice, plan } = await this.prisma.$transaction(
-        async (tx) => {
-          const status = await lockSalesOrderForInvoice(tx, data.salesOrderId);
+      // 5. The finance masters the journal posts to, checked before anything
+      // is written or numbered: receivables (1101), sales (3001), GST output
+      // (5002) and an open financial year.
+      const finance = await this.loadFinanceMasters();
 
-          if (status === SALES_ORDER_STATUS.CANCELLED) {
-            throw new ConflictException(
-              'A cancelled Sales Order cannot be invoiced.',
-            );
-          }
+      // 6. The invoice and everything it posts, in one transaction that holds
+      // the order exclusively: the order is not cancelled and not invoiced
+      // yet, every amount is its Quotation's (nothing is added on top), the
+      // number is the next of the seller registration's series, and the
+      // invoice's lines are the priced lines it was sold with. Its receivable,
+      // customer-ledger entry and journal are written in the same transaction.
+      // If anything fails, nothing is written and the number is given back.
+      const { salesInvoice } = await this.prisma.$transaction(async (tx) => {
+        const status = await lockSalesOrderForInvoice(tx, data.salesOrderId);
 
-          if (
-            (await tx.salesInvoice.count({
-              where: { salesOrderId: data.salesOrderId },
-            })) > 0
-          ) {
-            throw new ConflictException(ALREADY_INVOICED_MESSAGE);
-          }
-
-          const plan = planInvoice(
-            await loadInvoiceSource(tx, data.salesOrderId),
+        if (status === SALES_ORDER_STATUS.CANCELLED) {
+          throw new ConflictException(
+            'A cancelled Sales Order cannot be invoiced.',
           );
+        }
 
-          if (
-            data.customerName !== undefined &&
-            !sameName(data.customerName, plan.customer.customerName)
-          ) {
-            throw new BadRequestException(
-              `The customer name does not match the Sales Order's customer (${plan.customer.customerName}).`,
-            );
-          }
+        if (
+          (await tx.salesInvoice.count({
+            where: { salesOrderId: data.salesOrderId },
+          })) > 0
+        ) {
+          throw new ConflictException(ALREADY_INVOICED_MESSAGE);
+        }
 
-          const allocated = await allocateDocumentNumber(
-            tx,
-            DOCUMENT_NUMBER_TYPE.SALES_INVOICE,
-            {
-              kind: 'registration',
-              gstRegistrationId: plan.seller.id,
-              stateCode: plan.seller.stateCode,
-            },
-            invoiceDate,
+        const plan = planInvoice(
+          await loadInvoiceSource(tx, data.salesOrderId),
+        );
+
+        if (
+          data.customerName !== undefined &&
+          !sameName(data.customerName, plan.customer.customerName)
+        ) {
+          throw new BadRequestException(
+            `The customer name does not match the Sales Order's customer (${plan.customer.customerName}).`,
           );
+        }
 
-          // Numbers follow dates: an invoice cannot be dated before the latest
-          // invoice already numbered in its series.
-          const latest = await tx.salesInvoice.findFirst({
-            where: { invoiceNumber: { startsWith: allocated.prefix } },
-            orderBy: [{ invoiceDate: 'desc' }],
-            select: { invoiceNumber: true, invoiceDate: true },
-          });
-          if (latest && latest.invoiceDate.getTime() > invoiceDate.getTime()) {
-            throw new ConflictException(
-              `The invoice date ${data.invoiceDate} is earlier than invoice ${latest.invoiceNumber} (${istCalendarDay(latest.invoiceDate)}) in the same series. Invoices are numbered in date order; no invoice was created.`,
-            );
-          }
+        const allocated = await allocateDocumentNumber(
+          tx,
+          DOCUMENT_NUMBER_TYPE.SALES_INVOICE,
+          {
+            kind: 'registration',
+            gstRegistrationId: plan.seller.id,
+            stateCode: plan.seller.stateCode,
+          },
+          invoiceDate,
+        );
 
-          const invoice = await tx.salesInvoice.create({
-            data: {
-              invoiceNumber: allocated.number,
-              salesOrderId: data.salesOrderId,
-              dispatchOrderId: data.dispatchOrderId,
-              invoiceDate,
-              customerName: plan.customer.customerName,
+        // Numbers follow dates: an invoice cannot be dated before the latest
+        // invoice already numbered in its series.
+        const latest = await tx.salesInvoice.findFirst({
+          where: { invoiceNumber: { startsWith: allocated.prefix } },
+          orderBy: [{ invoiceDate: 'desc' }],
+          select: { invoiceNumber: true, invoiceDate: true },
+        });
+        if (latest && latest.invoiceDate.getTime() > invoiceDate.getTime()) {
+          throw new ConflictException(
+            `The invoice date ${data.invoiceDate} is earlier than invoice ${latest.invoiceNumber} (${istCalendarDay(latest.invoiceDate)}) in the same series. Invoices are numbered in date order; no invoice was created.`,
+          );
+        }
 
-              taxableAmount: plan.taxableAmount,
-              gstAmount: plan.gstAmount,
-              cgstAmount: plan.cgstAmount,
-              sgstAmount: plan.sgstAmount,
-              igstAmount: plan.igstAmount,
-              totalAmount: plan.totalAmount,
-
-              remarks: data.remarks,
-              status: 'POSTED',
-            },
-          });
-
-          if (plan.lines.length > 0) {
-            await tx.salesInvoiceItem.createMany({
-              data: plan.lines.map((line) => ({
-                salesInvoiceId: invoice.id,
-                sourceLineId: line.id,
-                lineNumber: line.lineNumber,
-                productId: line.inventoryItemId as string,
-                description: line.description,
-                hsnCode: line.hsnCode,
-                quantity: line.quantity,
-                rate: line.unitRate,
-                taxableAmount: line.taxableAmount,
-                gstRate: line.gstRate,
-                cgstAmount: line.cgstAmount,
-                sgstAmount: line.sgstAmount,
-                igstAmount: line.igstAmount,
-                gstAmount: line.gstAmount,
-                totalAmount: line.totalAmount,
-              })),
-            });
-          }
-
-          return { salesInvoice: invoice, plan };
-        },
-      );
-
-      const { taxableAmount, gstAmount, totalAmount } = salesInvoice;
-      const customerName = plan.customer.customerName;
-
-      // 5. Accounts Receivable
-      await this.prisma.accountsReceivable.create({
-        data: {
-          salesInvoiceId: salesInvoice.id,
-          dueDate: invoiceDate,
-          outstandingAmount: totalAmount,
-          paidAmount: 0,
-          balanceAmount: totalAmount,
-          paymentStatus: 'PENDING',
-        },
-      });
-
-      // 6. Customer Ledger
-      const lastCustomerLedger = await this.prisma.customerLedger.findFirst({
-        where: {
-          customerName,
-        },
-        orderBy: {
-          createdAt: 'desc',
-        },
-      });
-
-      const previousBalance = lastCustomerLedger
-        ? lastCustomerLedger.balanceAmount
-        : 0;
-
-      const newBalance = previousBalance + totalAmount;
-
-      await this.prisma.customerLedger.create({
-        data: {
-          customerName,
-          salesInvoiceId: salesInvoice.id,
-          debitAmount: totalAmount,
-          creditAmount: 0,
-          balanceAmount: newBalance,
-          entryDate: invoiceDate,
-          remarks: `Sales invoice posted ${salesInvoice.invoiceNumber}`,
-        },
-      });
-
-      // 7. Finance Accounts
-      const receivableAccount = await this.prisma.chartOfAccount.findFirst({
-        where: { accountCode: '1101' },
-      });
-
-      const salesAccount = await this.prisma.chartOfAccount.findFirst({
-        where: { accountCode: '3001' },
-      });
-
-      const gstOutputAccount = await this.prisma.chartOfAccount.findFirst({
-        where: { accountCode: '5002' },
-      });
-
-      const financialYear = await this.prisma.financialYear.findFirst({
-        where: { isClosed: false },
-      });
-
-      if (
-        !receivableAccount ||
-        !salesAccount ||
-        !gstOutputAccount ||
-        !financialYear
-      ) {
-        throw new Error('Finance master setup incomplete');
-      }
-
-      // 8. Journal Entry
-      const journal = await this.prisma.journalEntry.create({
-        data: {
-          voucherDate: invoiceDate,
-          narration: `Auto journal for Sales Invoice ${salesInvoice.invoiceNumber}`,
-          financialYearId: financialYear.id,
-          status: 'POSTED',
-        },
-      });
-
-      const journalLines = [
-        {
-          accountId: receivableAccount.id,
-          debitAmount: totalAmount,
-          creditAmount: 0,
-        },
-        {
-          accountId: salesAccount.id,
-          debitAmount: 0,
-          creditAmount: taxableAmount,
-        },
-        {
-          accountId: gstOutputAccount.id,
-          debitAmount: 0,
-          creditAmount: gstAmount,
-        },
-      ];
-
-      for (const line of journalLines) {
-        await this.prisma.journalLine.create({
+        const invoice = await tx.salesInvoice.create({
           data: {
-            journalEntryId: journal.id,
-            accountId: line.accountId,
-            debitAmount: line.debitAmount,
-            creditAmount: line.creditAmount,
+            invoiceNumber: allocated.number,
+            salesOrderId: data.salesOrderId,
+            dispatchOrderId: data.dispatchOrderId,
+            invoiceDate,
+            customerName: plan.customer.customerName,
+
+            taxableAmount: plan.taxableAmount,
+            gstAmount: plan.gstAmount,
+            cgstAmount: plan.cgstAmount,
+            sgstAmount: plan.sgstAmount,
+            igstAmount: plan.igstAmount,
+            totalAmount: plan.totalAmount,
+
+            remarks: data.remarks,
+            status: 'POSTED',
           },
         });
-      }
+
+        if (plan.lines.length > 0) {
+          await tx.salesInvoiceItem.createMany({
+            data: plan.lines.map((line) => ({
+              salesInvoiceId: invoice.id,
+              sourceLineId: line.id,
+              lineNumber: line.lineNumber,
+              productId: line.inventoryItemId as string,
+              description: line.description,
+              hsnCode: line.hsnCode,
+              quantity: line.quantity,
+              rate: line.unitRate,
+              taxableAmount: line.taxableAmount,
+              gstRate: line.gstRate,
+              cgstAmount: line.cgstAmount,
+              sgstAmount: line.sgstAmount,
+              igstAmount: line.igstAmount,
+              gstAmount: line.gstAmount,
+              totalAmount: line.totalAmount,
+            })),
+          });
+        }
+
+        // 7. Accounts Receivable: the whole invoice is outstanding.
+        await tx.accountsReceivable.create({
+          data: {
+            salesInvoiceId: invoice.id,
+            dueDate: invoiceDate,
+            outstandingAmount: invoice.totalAmount,
+            paidAmount: 0,
+            balanceAmount: invoice.totalAmount,
+            paymentStatus: 'PENDING',
+          },
+        });
+
+        // 8. Customer Ledger: one debit entry with the running balance of
+        // this customer's ledger. Serialised on the same lock payment
+        // collections take, so an invoice and a payment of the same customer
+        // cannot both read the same previous balance.
+        const ledgerName = plan.customer.customerName;
+        await tx.$executeRaw`
+            SELECT pg_advisory_xact_lock(hashtextextended(${`customer-ledger:${ledgerName}`}, 0))
+          `;
+
+        const lastLedger = await tx.customerLedger.findFirst({
+          where: { customerName: ledgerName },
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+          select: { balanceAmount: true },
+        });
+
+        await tx.customerLedger.create({
+          data: {
+            customerName: ledgerName,
+            salesInvoiceId: invoice.id,
+            debitAmount: invoice.totalAmount,
+            creditAmount: 0,
+            balanceAmount: fromPaise(
+              toPaise(lastLedger?.balanceAmount ?? 0) +
+                toPaise(invoice.totalAmount),
+            ),
+            entryDate: invoiceDate,
+            remarks: `Sales invoice posted ${invoice.invoiceNumber}`,
+            // Set after the lock is held, so "latest row" follows lock order.
+            createdAt: new Date(),
+          },
+        });
+
+        // 9. Journal: receivable debit = sales credit + GST output credit.
+        const journal = await tx.journalEntry.create({
+          data: {
+            voucherDate: invoiceDate,
+            narration: `Auto journal for Sales Invoice ${invoice.invoiceNumber}`,
+            financialYearId: finance.financialYearId,
+            status: 'POSTED',
+          },
+        });
+
+        const journalLines = [
+          {
+            accountId: finance.receivableAccountId,
+            debitAmount: invoice.totalAmount,
+            creditAmount: 0,
+          },
+          {
+            accountId: finance.salesAccountId,
+            debitAmount: 0,
+            creditAmount: invoice.taxableAmount,
+          },
+          {
+            accountId: finance.gstOutputAccountId,
+            debitAmount: 0,
+            creditAmount: invoice.gstAmount,
+          },
+        ];
+
+        for (const line of journalLines) {
+          await tx.journalLine.create({
+            data: { journalEntryId: journal.id, ...line },
+          });
+        }
+
+        return { salesInvoice: invoice };
+      });
 
       return salesInvoice;
     } catch (error) {
       console.log(error);
       throw error;
     }
+  }
+
+  // The accounts and financial year an invoice's journal posts to, or a 409
+  // that names what is missing. Read before the invoice transaction so a
+  // missing master refuses the invoice before a number is used.
+  private async loadFinanceMasters() {
+    const [receivable, sales, gstOutput, financialYear] = await Promise.all([
+      this.prisma.chartOfAccount.findFirst({
+        where: { accountCode: RECEIVABLE_ACCOUNT_CODE },
+      }),
+      this.prisma.chartOfAccount.findFirst({
+        where: { accountCode: SALES_ACCOUNT_CODE },
+      }),
+      this.prisma.chartOfAccount.findFirst({
+        where: { accountCode: GST_OUTPUT_ACCOUNT_CODE },
+      }),
+      this.prisma.financialYear.findFirst({ where: { isClosed: false } }),
+    ]);
+
+    const missing = [
+      !receivable && `account ${RECEIVABLE_ACCOUNT_CODE} (receivables)`,
+      !sales && `account ${SALES_ACCOUNT_CODE} (sales)`,
+      !gstOutput && `account ${GST_OUTPUT_ACCOUNT_CODE} (GST output)`,
+      !financialYear && 'an open financial year',
+    ].filter(Boolean);
+
+    if (!receivable || !sales || !gstOutput || !financialYear) {
+      throw new ConflictException(
+        `${FINANCE_SETUP_INCOMPLETE_MESSAGE} Missing: ${missing.join(', ')}. No invoice was created.`,
+      );
+    }
+
+    return {
+      receivableAccountId: receivable.id,
+      salesAccountId: sales.id,
+      gstOutputAccountId: gstOutput.id,
+      financialYearId: financialYear.id,
+    };
   }
 
   // Everything the tax invoice document prints, read as stored, or a 409 that

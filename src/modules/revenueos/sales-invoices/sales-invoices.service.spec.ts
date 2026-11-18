@@ -8,8 +8,13 @@ import { SalesOrdersService } from '../sales-orders/sales-orders.service';
 import { SalesInvoicesController } from './sales-invoices.controller';
 import {
   ALREADY_INVOICED_MESSAGE,
+  DISPATCH_ORDER_NOT_DISPATCHED_MESSAGE,
+  DISPATCH_ORDER_NOT_FOUND_MESSAGE,
+  DISPATCH_ORDER_OF_ANOTHER_ORDER_MESSAGE,
+  FINANCE_SETUP_INCOMPLETE_MESSAGE,
   SalesInvoicesService,
 } from './sales-invoices.service';
+import { SALES_ORDER_NOT_FOUND_MESSAGE } from '../sales-orders/sales-order-lifecycle';
 import * as invoiceLock from './invoice-order-lock';
 import { JwtAuthGuard } from '../../../core/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../../core/guards/permissions.guard';
@@ -23,7 +28,10 @@ const uid = (n: number) =>
   `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const ORDER = uid(1);
 const OTHER_ORDER = uid(2);
-const DISPATCH = uid(11); // a DISPATCHED Dispatch Order; not linked to the order
+const DISPATCH = uid(11); // ORDER's DISPATCHED Dispatch Order
+// Each seeded order has its own DISPATCHED Dispatch Order.
+const dispatchFor = (order: string) =>
+  order === ORDER ? DISPATCH : `dispatch-${order}`;
 const USER = 'user-1';
 const CANCELLED_MESSAGE = 'A cancelled Sales Order cannot be invoiced.';
 // The chain every seeded order is built from: a Quotation of 1,00,000 + 18% IGST
@@ -76,6 +84,9 @@ class FakeDb {
   clock = 0;
   seq = 100;
   failInvoiceInsert = false;
+  // When set, the cancellation's "has a Dispatch Order" check does not see the
+  // order's Dispatch Order (see the race tests below).
+  cancelIgnoresDispatchOrders = false;
   gates: Record<string, () => Promise<void>> = {};
   private holders = new Map<string, Array<{ owner: symbol; mode: Mode }>>();
   private held = new Map<symbol, string[]>();
@@ -188,9 +199,11 @@ class FakeDb {
           return x ? { ...x } : null;
         }),
         count: jest.fn(async (a: any) => {
-          const n = [...self.dispatchOrders.values()].filter((x) =>
-            self.matches(x, a.where),
-          ).length;
+          const n = self.cancelIgnoresDispatchOrders
+            ? 0
+            : [...self.dispatchOrders.values()].filter((x) =>
+                self.matches(x, a.where),
+              ).length;
           await gate('dispatchOrder.count:after');
           return n;
         }),
@@ -312,6 +325,16 @@ class FakeDb {
       salesOrderEvent: {
         create: jest.fn(async (a: any) => insert(self.events, a.data)),
       },
+      // The customer-ledger advisory lock, held until the transaction ends.
+      $executeRaw: jest.fn(
+        async (strings: TemplateStringsArray, ...v: any[]) => {
+          const sql = strings.join('?').replace(/\s+/g, ' ');
+          if (!sql.includes('pg_advisory_xact_lock'))
+            throw new Error(`unexpected raw statement: ${sql}`);
+          if (inTx) await self.lock(owner, `advisory:${v[0]}`, 'UPDATE');
+          return 1;
+        },
+      ),
       $queryRaw: jest.fn(async (strings: TemplateStringsArray, ...v: any[]) => {
         const sql = strings.join('?').replace(/\s+/g, ' ');
         if (sql.includes('document-number:allocate')) {
@@ -442,6 +465,7 @@ describe('Sales Invoice creation and cancelled Sales Orders', () => {
     fake.gates = {};
     fake.clock = 0;
     fake.failInvoiceInsert = false;
+    fake.cancelIgnoresDispatchOrders = false;
     for (const [i, code] of ['1101', '3001', '5002'].entries()) {
       fake.accounts.set(code, { id: uid(300 + i), accountCode: code });
     }
@@ -456,7 +480,7 @@ describe('Sales Invoice creation and cancelled Sales Orders', () => {
     fake.dispatchOrders.set(DISPATCH, {
       id: DISPATCH,
       status: 'DISPATCHED',
-      salesOrderId: null,
+      salesOrderId: ORDER,
     });
     // The services are plain classes over the same fake the app uses.
     const prisma = app.get(PrismaService) ?? fake.root();
@@ -505,6 +529,12 @@ describe('Sales Invoice creation and cancelled Sales Orders', () => {
       gstAmount: 18000,
       totalAmount: 118000,
     });
+    if (!fake.dispatchOrders.has(dispatchFor(id)))
+      fake.dispatchOrders.set(dispatchFor(id), {
+        id: dispatchFor(id),
+        status: 'DISPATCHED',
+        salesOrderId: id,
+      });
     fake.orders.set(id, {
       id,
       status,
@@ -519,7 +549,7 @@ describe('Sales Invoice creation and cancelled Sales Orders', () => {
   };
   const body = (extra: any = {}) => ({
     salesOrderId: ORDER,
-    dispatchOrderId: DISPATCH,
+    dispatchOrderId: dispatchFor(extra.salesOrderId ?? ORDER),
     invoiceDate: '2026-10-07',
     customerName: 'Acme Industries',
     ...extra,
@@ -697,28 +727,65 @@ describe('Sales Invoice creation and cancelled Sales Orders', () => {
 
   // =========================================================================
   describe('the existing checks and their order are unchanged', () => {
-    it('a Dispatch Order that is not DISPATCHED is still refused first, with the same message, even for a cancelled order', async () => {
-      seedOrder('CANCELLED');
-      fake.dispatchOrders.set(DISPATCH, {
-        id: DISPATCH,
-        status: 'LOGISTICS_PREPARING',
-      });
+    it('an unknown Dispatch Order -> 404, and nothing is written', async () => {
+      seedOrder('READY_FOR_INVOICING');
       const before = snap();
-      expect(await errorOf(service.create(body()))).toBe(
-        'Dispatch Order must be DISPATCHED',
-      );
-      expect(
-        await errorOf(service.create(body({ dispatchOrderId: uid(999) }))),
-      ).toBe('Dispatch Order must be DISPATCHED');
+      const res = await post(body({ dispatchOrderId: uid(999) }));
+      expect(res.status).toBe(404);
+      expect(res.body.message).toBe(DISPATCH_ORDER_NOT_FOUND_MESSAGE);
       expect(snap()).toBe(before);
     });
 
-    it('an unknown Sales Order is still "Sales Order not found"', async () => {
+    it('an unknown Sales Order -> 404 "Sales Order not found.", and nothing is written', async () => {
       const before = snap();
-      expect(
-        await errorOf(service.create(body({ salesOrderId: uid(999) }))),
-      ).toBe('Sales Order not found');
+      const res = await post(
+        body({ salesOrderId: uid(999), dispatchOrderId: DISPATCH }),
+      );
+      expect(res.status).toBe(404);
+      expect(res.body.message).toBe(SALES_ORDER_NOT_FOUND_MESSAGE);
       expect(snap()).toBe(before);
+    });
+
+    it("another order's Dispatch Order -> 400, and nothing is written", async () => {
+      seedOrder('READY_FOR_INVOICING');
+      seedOrder('READY_FOR_INVOICING', {}, OTHER_ORDER);
+      const before = snap();
+      const res = await post(
+        body({ dispatchOrderId: dispatchFor(OTHER_ORDER) }),
+      );
+      expect(res.status).toBe(400);
+      expect(res.body.message).toBe(DISPATCH_ORDER_OF_ANOTHER_ORDER_MESSAGE);
+      expect(snap()).toBe(before);
+    });
+
+    it('a Dispatch Order not made from any Sales Order -> 400, and nothing is written', async () => {
+      seedOrder('READY_FOR_INVOICING');
+      fake.dispatchOrders.set(DISPATCH, {
+        id: DISPATCH,
+        status: 'DISPATCHED',
+        salesOrderId: null,
+      });
+      const before = snap();
+      const res = await post(body());
+      expect(res.status).toBe(400);
+      expect(res.body.message).toBe(DISPATCH_ORDER_OF_ANOTHER_ORDER_MESSAGE);
+      expect(snap()).toBe(before);
+    });
+
+    it("the order's own Dispatch Order that is not DISPATCHED yet -> 409, even for a cancelled order, and nothing is written", async () => {
+      for (const status of ['READY_FOR_INVOICING', 'CANCELLED']) {
+        seedOrder(status);
+        fake.dispatchOrders.set(DISPATCH, {
+          id: DISPATCH,
+          status: 'LOGISTICS_PREPARING',
+          salesOrderId: ORDER,
+        });
+        const before = snap();
+        const res = await post(body());
+        expect(res.status).toBe(409);
+        expect(res.body.message).toBe(DISPATCH_ORDER_NOT_DISPATCHED_MESSAGE);
+        expect(snap()).toBe(before);
+      }
     });
 
     it('a request body that fails validation is still a 400 and writes nothing', async () => {
@@ -737,6 +804,100 @@ describe('Sales Invoice creation and cancelled Sales Orders', () => {
         'invoice insert failed',
       );
       expect(snap()).toBe(before);
+    });
+  });
+
+  // =========================================================================
+  describe('the invoice and everything it posts are one transaction', () => {
+    it.each([
+      ['1101', /account 1101 \(receivables\)/],
+      ['3001', /account 3001 \(sales\)/],
+      ['5002', /account 5002 \(GST output\)/],
+    ])(
+      'a missing account %s -> 409 naming it; no invoice, no number used, nothing posted',
+      async (code, named) => {
+        seedOrder('READY_FOR_INVOICING');
+        fake.accounts.delete(code);
+        const before = snap();
+        const res = await post(body());
+        expect(res.status).toBe(409);
+        expect(res.body.message).toContain(FINANCE_SETUP_INCOMPLETE_MESSAGE);
+        expect(res.body.message).toMatch(named);
+        expect(snap()).toBe(before);
+        expect([...fake.counters.values()].every((n) => n === 0)).toBe(true);
+      },
+    );
+
+    it('no open financial year -> 409 naming it, and nothing is written', async () => {
+      seedOrder('READY_FOR_INVOICING');
+      fake.years.length = 0;
+      const before = snap();
+      const res = await post(body());
+      expect(res.status).toBe(409);
+      expect(res.body.message).toMatch(/an open financial year/);
+      expect(snap()).toBe(before);
+    });
+
+    it('once the masters are fixed, the same order is invoiced with the first number of the series', async () => {
+      seedOrder('READY_FOR_INVOICING');
+      fake.accounts.delete('5002');
+      expect((await post(body())).status).toBe(409);
+      fake.accounts.set('5002', { id: uid(302), accountCode: '5002' });
+      const res = await post(body());
+      expect(res.status).toBe(201);
+      expect(res.body.invoiceNumber).toBe('SI24/26-27/00001');
+    });
+
+    it.each([
+      ['accountsReceivable.create:before', 'receivable'],
+      ['customerLedger.create:before', 'ledger entry'],
+      ['journalEntry.create:before', 'journal'],
+      ['journalLine.create:after', 'journal line'],
+    ])(
+      'a failure while writing the %s (%s) rolls back the invoice, its lines, its number and every posting',
+      async (gateName) => {
+        seedOrder('READY_FOR_INVOICING');
+        const before = snap();
+        fake.gates[gateName] = async () => {
+          throw new Error('database write failed');
+        };
+        expect(await errorOf(service.create(body()))).toBe(
+          'database write failed',
+        );
+        delete fake.gates[gateName];
+        expect(snap()).toBe(before);
+        expect(fake.invoiceItems).toHaveLength(0);
+        expect([...fake.counters.values()].every((n) => n === 0)).toBe(true);
+        // and the order can still be invoiced afterwards, as number 1
+        const res = await post(body());
+        expect(res.status).toBe(201);
+        expect(res.body.invoiceNumber).toBe('SI24/26-27/00001');
+      },
+    );
+
+    it('two invoices of the same customer at the same time get distinct running balances', async () => {
+      seedOrder('READY_FOR_INVOICING');
+      seedOrder('READY_FOR_INVOICING', {}, OTHER_ORDER);
+      const [a, b] = await Promise.all([
+        post(body()),
+        post(body({ salesOrderId: OTHER_ORDER })),
+      ]);
+      expect([a.status, b.status]).toEqual([201, 201]);
+      expect(
+        fake.ledger.map((l) => l.balanceAmount).sort((x, y) => x - y),
+      ).toEqual([118000, 236000]);
+    });
+
+    it('the running balance continues from an existing ledger entry of the customer', async () => {
+      seedOrder('READY_FOR_INVOICING');
+      fake.ledger.push({
+        id: uid(500),
+        customerName: 'Acme Industries',
+        balanceAmount: 1000.1,
+        createdAt: new Date(0),
+      });
+      expect((await post(body())).status).toBe(201);
+      expect(fake.ledger[1].balanceAmount).toBe(119000.1);
     });
   });
 
@@ -1020,7 +1181,14 @@ describe('Sales Invoice creation and cancelled Sales Orders', () => {
         expect(fake.orders.get(ORDER).status).not.toBe('CANCELLED');
     };
 
-    beforeEach(() => seedOrder('READY_FOR_DISPATCH_ORDER'));
+    // An invoice now needs the order's own Dispatch Order, and a real
+    // cancellation refuses an order that has one, so in production this race
+    // cannot start. These tests keep proving the invoice-side lock on its own:
+    // the cancellation here does not see the Dispatch Order.
+    beforeEach(() => {
+      seedOrder('READY_FOR_DISPATCH_ORDER');
+      fake.cancelIgnoresDispatchOrders = true;
+    });
 
     it('the cancellation holds the order, the invoice arrives: it waits, then is refused (409), and nothing at all is written for it', async () => {
       const r = await invoiceArrivesDuringCancel();
