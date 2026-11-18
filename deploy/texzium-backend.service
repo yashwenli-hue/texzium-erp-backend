@@ -1,0 +1,25 @@
+# Texzium ERP backend as a systemd service: starts at boot and is restarted if it
+# stops unexpectedly. Same command, folder and port the backend was started with
+# by hand (loopback only, settings from backend/.env).
+#
+# Install:  cp deploy/texzium-backend.service /etc/systemd/system/
+#           systemctl daemon-reload && systemctl enable texzium-backend
+[Unit]
+Description=Texzium ERP backend (NestJS, 127.0.0.1:3000)
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+WorkingDirectory=/root/texzium-erp/backend
+Environment=PORT=3000
+ExecStart=/usr/bin/node -r /root/backups/bind_loopback_20261008_165548.js dist/main
+Restart=on-failure
+RestartSec=5
+# SIGTERM lets the deletion purge worker finish its current record (enableShutdownHooks).
+KillSignal=SIGTERM
+TimeoutStopSec=30
+StandardOutput=append:/root/texzium-backend.log
+StandardError=append:/root/texzium-backend.log
+
+[Install]
+WantedBy=multi-user.target

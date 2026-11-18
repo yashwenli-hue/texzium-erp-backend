@@ -9,3 +9,8 @@ const path = require('path');
 process.env.CONTENT_STORAGE_DIR = fs.mkdtempSync(
   path.join(os.tmpdir(), 'jest-content-'),
 );
+
+// Tests never use the live login-token secret either. The backend does not start
+// without JWT_SECRET (no built-in fallback), so every test process gets its own
+// test-only value; tests that sign tokens read it from process.env.
+process.env.JWT_SECRET = 'jest-only-secret-not-for-production';

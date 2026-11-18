@@ -5,14 +5,19 @@ import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { PrismaService } from '../database/prisma.service';
 import { JwtStrategy } from './jwt.strategy';
+import { requireJwtSecret } from './jwt-secret';
 import { JwtAuthGuard } from '../guards/jwt-auth.guard';
 import { CredentialRedactionInterceptor } from '../security/credential-redaction.interceptor';
 
 @Module({
   imports: [
-    JwtModule.register({
-      secret: process.env.JWT_SECRET || 'texzium-secret',
-      signOptions: { expiresIn: '1d' },
+    // Built when the module is created, like the token strategy, so both use
+    // the same JWT_SECRET; without it the backend does not start.
+    JwtModule.registerAsync({
+      useFactory: () => ({
+        secret: requireJwtSecret(),
+        signOptions: { expiresIn: '1d' },
+      }),
     }),
   ],
   controllers: [AuthController],
