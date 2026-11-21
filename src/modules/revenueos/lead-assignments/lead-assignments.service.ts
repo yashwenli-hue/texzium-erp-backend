@@ -14,6 +14,10 @@ import { UnassignLeadDto } from './dto/unassign-lead.dto';
 import { ReopenLeadDto } from './dto/reopen-lead.dto';
 import { lockActiveLeadForUpdate } from '../leads/lead-lifecycle';
 import {
+  bantRequiredMessage,
+  isBantComplete,
+} from '../lead-bant/bant-questions';
+import {
   assignRefusal,
   canAssignLeadFrom,
   canQualifyLeadFrom,
@@ -169,6 +173,12 @@ export class LeadAssignmentsService {
 
       if (!canQualifyLeadFrom(lead.status)) {
         throw new ConflictException(qualifyRefusal(lead.status));
+      }
+
+      // Only a lead whose BANT analysis is complete goes to Sales.
+      const bant = await tx.leadBant.findUnique({ where: { leadId } });
+      if (!isBantComplete(bant)) {
+        throw new ConflictException(bantRequiredMessage(bant));
       }
 
       const salesUser = await requireActiveAssignee(tx, data.salesUserId);

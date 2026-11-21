@@ -325,6 +325,15 @@ describe('lead deletion: locking, capture and removal', () => {
           { id: 'f1', completedById: 'u4', status: 'CANCELLED' },
         ]),
       },
+      leadBant: {
+        findUnique: jest.fn(async () => ({
+          id: 'b1',
+          leadId: 'L1',
+          budget: 'CONFIRMED',
+          score: 25,
+          updatedById: 'u5',
+        })),
+      },
       user: {
         findMany: jest.fn(async (args: any) =>
           args.where.id.in.sort().map((id: string) => ({
@@ -344,11 +353,13 @@ describe('lead deletion: locking, capture and removal', () => {
     expect(snapshot.timelines).toHaveLength(2);
     expect(snapshot.notes[0].note).toBe('Needs pumps');
     expect(snapshot.followups[0].status).toBe('CANCELLED');
+    expect(snapshot.bant).toMatchObject({ budget: 'CONFIRMED', score: 25 });
     expect(snapshot.people.map((p: any) => p.id)).toEqual([
       'u1',
       'u2',
       'u3',
       'u4',
+      'u5',
     ]);
     expect(JSON.parse(JSON.stringify(snapshot))).toEqual(snapshot);
   });
@@ -361,12 +372,13 @@ describe('lead deletion: locking, capture and removal', () => {
       leadFollowup: {
         deleteMany: jest.fn(async () => order.push('followups')),
       },
+      leadBant: { deleteMany: jest.fn(async () => order.push('bant')) },
       lead: { delete: jest.fn(async () => order.push('lead')) },
     };
 
     await LEAD_DELETION_POLICY.remove(tx, 'L1');
 
-    expect(order).toEqual(['timeline', 'notes', 'followups', 'lead']);
+    expect(order).toEqual(['timeline', 'notes', 'followups', 'bant', 'lead']);
     expect(tx.lead.delete).toHaveBeenCalledWith({ where: { id: 'L1' } });
     expect(tx.leadTimeline.deleteMany).toHaveBeenCalledWith({
       where: { leadId: 'L1' },

@@ -9,6 +9,7 @@ import {
   startApp,
   stopApp,
   user,
+  completeBant,
 } from './harness';
 
 // Backend-enforced record visibility (record-scope.ts) on a real database, with two
@@ -114,6 +115,7 @@ beforeAll(async () => {
         .post('/lead-assignments', { leadId: h.id, assignedToId: priya })
     ).status,
   ).toBe(201);
+  await completeBant(ctx.db, h.id);
   expect(
     (
       await ctx

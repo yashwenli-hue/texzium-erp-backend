@@ -1,5 +1,14 @@
 /* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-argument -- supertest response bodies are loosely typed */
-import { Ctx, lead, reset, role, startApp, stopApp, user } from './harness';
+import {
+  Ctx,
+  completeBant,
+  lead,
+  reset,
+  role,
+  startApp,
+  stopApp,
+  user,
+} from './harness';
 
 // Lead lifecycle v2 on a real database: pre-qualification moves, Underqualified,
 // qualification (including the formerly stuck Qualified), rejection and reopening,
@@ -158,6 +167,7 @@ describe('qualification', () => {
       status: 'UNDERQUALIFIED',
       assignedToId: presales,
     });
+    await completeBant(ctx.db, l.id);
     const r = await ctx
       .as(presales)
       .patch(`/lead-assignments/${l.id}/qualify`, { salesUserId: sales });
@@ -179,6 +189,7 @@ describe('qualification', () => {
       customerName: 'Legacy Qualified',
       status: 'QUALIFIED',
     });
+    await completeBant(ctx.db, l.id);
     const r = await ctx
       .as(admin)
       .patch(`/lead-assignments/${l.id}/qualify`, { salesUserId: sales });
@@ -232,6 +243,7 @@ describe('reopening a rejected lead', () => {
       ['LEAD_REOPENED', admin, 'Budget approved after all'],
     ]);
     // and it can be qualified again
+    await completeBant(ctx.db, l.id);
     expect(
       (
         await ctx

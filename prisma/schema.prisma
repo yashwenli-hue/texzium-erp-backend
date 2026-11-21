@@ -75,6 +75,7 @@ model User {
   dataDeletions              DataDeletionRecord[]     @relation("DataDeletionActor")
   dataDeletionsRestored      DataDeletionRecord[]     @relation("DataDeletionRestorer")
   dataDeletionsPurged        DataDeletionRecord[]     @relation("DataDeletionPurger")
+  leadBantUpdates LeadBant[] @relation("LeadBantUpdatedBy")
 }
 
 model Role {
@@ -350,6 +351,7 @@ model Lead {
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
   opportunities Opportunity[]
+  bant          LeadBant?
 
   @@index([deactivatedById])
   @@index([inventoryItemId])
@@ -385,6 +387,39 @@ enum LeadActivityType {
   WHATSAPP
   REQUIREMENT
   OTHER
+}
+
+// BANT analysis of a lead (Budget, Authority, Need, Timeline): one row per lead,
+// saved as Pre-Sales answers it. Each answer is an option value from
+// src/modules/revenueos/lead-bant/bant-questions.ts (checked in the database by
+// manual migration 20261121_lead_bant.sql); score is worked out by the server from
+// the answers (0-100). completedAt is set while all four are answered. A lead is
+// qualified and handed to Sales only with a complete BANT.
+model LeadBant {
+  id     String @id @default(uuid())
+  leadId String @unique
+  lead   Lead   @relation(fields: [leadId], references: [id])
+
+  budget        String?
+  budgetAmount  Float?
+  budgetNote    String?
+  authority     String?
+  authorityNote String?
+  need          String?
+  needNote      String?
+  timeline      String?
+  timelineNote  String?
+
+  score       Int       @default(0)
+  completedAt DateTime?
+
+  updatedById String?
+  updatedBy   User?   @relation("LeadBantUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([updatedById])
 }
 
 model LeadTimeline {

@@ -30,6 +30,7 @@ import { ConnectorMappingsModule } from './modules/adminos/connector-mappings/co
 import { WebhooksModule } from './modules/adminos/webhooks/webhooks.module';
 import { LeadAssignmentsModule } from './modules/revenueos/lead-assignments/lead-assignments.module';
 import { LeadFollowupsModule } from './modules/revenueos/lead-followups/lead-followups.module';
+import { LeadBantModule } from './modules/revenueos/lead-bant/lead-bant.module';
 import { LeadStatusModule } from './modules/revenueos/lead-status/lead-status.module';
 import { OpportunitiesModule } from './modules/revenueos/opportunities/opportunities.module';
 import { QuotationsModule } from './modules/revenueos/quotations/quotations.module';
@@ -127,7 +128,6 @@ import { DocumentNumberSeriesModule } from './modules/adminos/document-number-se
 import { DocumentProfileModule } from './modules/adminos/document-profile/document-profile.module';
 import { ContentLibraryModule } from './modules/revenueos/content-library/content-library.module';
 
-
 @Module({
   imports: [
     AccountsCommercialApprovalModule,
@@ -160,6 +160,7 @@ import { ContentLibraryModule } from './modules/revenueos/content-library/conten
     WebhooksModule,
     LeadAssignmentsModule,
     LeadFollowupsModule,
+    LeadBantModule,
     LeadStatusModule,
     OpportunitiesModule,
     QuotationsModule,
@@ -212,7 +213,7 @@ import { ContentLibraryModule } from './modules/revenueos/content-library/conten
     HsnMasterModule,
     GstReturnsModule,
     EInvoiceModule,
-    CustomerStatementsModule,    
+    CustomerStatementsModule,
     PaymentGatewayConfigModule,
     PaymentLinksModule,
     ReceiptVouchersModule,
@@ -238,7 +239,7 @@ import { ContentLibraryModule } from './modules/revenueos/content-library/conten
     PayslipPdfModule,
     HrmsDashboardModule,
     ProjectMasterModule,
-    ProjectTasksModule,  
+    ProjectTasksModule,
     ProjectCostsModule,
     ProjectBillingModule,
     ProjectProfitabilityModule,
@@ -248,13 +249,13 @@ import { ContentLibraryModule } from './modules/revenueos/content-library/conten
     ExecutiveDashboardModule,
     KpiIntelligenceModule,
     ForecastingEngineModule,
-    AiBusinessAdvisorModule,    
+    AiBusinessAdvisorModule,
     DispatchOrderItemsModule,
     InventoryTransactionsModule,
     InventoryEngineModule,
     DocumentNumberSeriesModule,
     DocumentProfileModule,
     ContentLibraryModule,
-    ],
+  ],
 })
 export class AppModule {}

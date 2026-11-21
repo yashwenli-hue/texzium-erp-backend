@@ -9,6 +9,7 @@ import {
   startApp,
   stopApp,
   user,
+  completeBant,
 } from './harness';
 
 // The confirmed visibility and customer-ownership policy (D3, 2026-10-17) on a real
@@ -115,6 +116,7 @@ beforeAll(async () => {
       })
     ).status,
   ).toBe(201);
+  await completeBant(ctx.db, l.id);
   expect(
     (
       await ctx

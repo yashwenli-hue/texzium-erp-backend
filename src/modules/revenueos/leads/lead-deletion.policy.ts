@@ -121,6 +121,25 @@ const FOLLOWUP_DATES = [
   'createdAt',
   'updatedAt',
 ] as const;
+// The lead's BANT analysis (one row, or none); its updatedAt is set again on restore.
+const BANT_COLUMNS = [
+  'id',
+  'leadId',
+  'budget',
+  'budgetAmount',
+  'budgetNote',
+  'authority',
+  'authorityNote',
+  'need',
+  'needNote',
+  'timeline',
+  'timelineNote',
+  'score',
+  'completedAt',
+  'updatedById',
+  'createdAt',
+] as const;
+const BANT_DATES = ['completedAt', 'createdAt'] as const;
 
 // The snapshot as restore reads it, or null when it is not a lead snapshot.
 function readLeadSnapshot(snapshot: unknown) {
@@ -139,6 +158,8 @@ function readLeadSnapshot(snapshot: unknown) {
     timelines: rowsOf(snapshot.timelines),
     notes: rowsOf(snapshot.notes),
     followups: rowsOf(snapshot.followups),
+    // Snapshots taken before BANT existed have none.
+    bant: isRow(snapshot.bant) ? snapshot.bant : null,
   };
 }
 
@@ -335,7 +356,7 @@ export const LEAD_DELETION_POLICY: DeletionPolicy = {
       include: { source: true },
     });
 
-    const [timelines, notes, followups] = await Promise.all([
+    const [timelines, notes, followups, bant] = await Promise.all([
       db.leadTimeline.findMany({
         where: { leadId: id },
         orderBy: [{ occurredAt: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
@@ -348,6 +369,7 @@ export const LEAD_DELETION_POLICY: DeletionPolicy = {
         where: { leadId: id },
         orderBy: [{ followupDate: 'asc' }, { id: 'asc' }],
       }),
+      db.leadBant.findUnique({ where: { leadId: id } }),
     ]);
 
     const personIds = new Set<string>();
@@ -358,6 +380,7 @@ export const LEAD_DELETION_POLICY: DeletionPolicy = {
       ...timelines.map((entry) => entry.actorId),
       ...timelines.map((entry) => entry.subjectUserId),
       ...followups.map((followup) => followup.completedById),
+      bant?.updatedById,
     ]) {
       if (id) {
         personIds.add(id);
@@ -378,6 +401,7 @@ export const LEAD_DELETION_POLICY: DeletionPolicy = {
         timelines,
         notes,
         followups,
+        bant,
         people,
       }),
     ) as Prisma.InputJsonValue;
@@ -387,6 +411,7 @@ export const LEAD_DELETION_POLICY: DeletionPolicy = {
     await tx.leadTimeline.deleteMany({ where: { leadId: id } });
     await tx.leadNote.deleteMany({ where: { leadId: id } });
     await tx.leadFollowup.deleteMany({ where: { leadId: id } });
+    await tx.leadBant.deleteMany({ where: { leadId: id } });
     await tx.lead.delete({ where: { id } });
   },
 
@@ -406,7 +431,7 @@ export const LEAD_DELETION_POLICY: DeletionPolicy = {
       };
     }
 
-    const { lead, timelines, notes, followups } = snap;
+    const { lead, timelines, notes, followups, bant } = snap;
     const conflicts: RestoreConflict[] = [];
 
     const exists = await db.lead.findUnique({
@@ -467,6 +492,7 @@ export const LEAD_DELETION_POLICY: DeletionPolicy = {
       ...timelines.map((row) => row.actorId),
       ...timelines.map((row) => row.subjectUserId),
       ...followups.map((row) => row.completedById),
+      bant?.updatedById,
     ]);
     const people = await db.user.findMany({
       where: { id: { in: personIds } },
@@ -481,13 +507,17 @@ export const LEAD_DELETION_POLICY: DeletionPolicy = {
       });
     }
 
-    const [clashTimeline, clashNotes, clashFollowups] = await Promise.all([
-      db.leadTimeline.count({ where: { id: { in: idsOf(timelines) } } }),
-      db.leadNote.count({ where: { id: { in: idsOf(notes) } } }),
-      db.leadFollowup.count({ where: { id: { in: idsOf(followups) } } }),
-    ]);
+    const [clashTimeline, clashNotes, clashFollowups, clashBant] =
+      await Promise.all([
+        db.leadTimeline.count({ where: { id: { in: idsOf(timelines) } } }),
+        db.leadNote.count({ where: { id: { in: idsOf(notes) } } }),
+        db.leadFollowup.count({ where: { id: { in: idsOf(followups) } } }),
+        bant
+          ? db.leadBant.count({ where: { id: { in: idsOf([bant]) } } })
+          : Promise.resolve(0),
+      ]);
 
-    if (clashTimeline + clashNotes + clashFollowups > 0) {
+    if (clashTimeline + clashNotes + clashFollowups + clashBant > 0) {
       conflicts.push({
         code: LEAD_RESTORE_CONFLICT.CHILD_ID_EXISTS,
         message: 'Part of its history already exists under the same identity.',
@@ -499,6 +529,7 @@ export const LEAD_DELETION_POLICY: DeletionPolicy = {
       { label: 'History events', count: timelines.length },
       { label: 'Imported notes', count: notes.length },
       { label: 'Cancelled follow-ups', count: followups.length },
+      { label: 'BANT analysis', count: bant ? 1 : 0 },
     ].filter((line) => line.count > 0);
 
     return {
@@ -566,6 +597,18 @@ export const LEAD_DELETION_POLICY: DeletionPolicy = {
           ) as Prisma.LeadFollowupCreateManyInput,
       ),
     });
+    if (snap.bant) {
+      await tx.leadBant.create({
+        data: {
+          ...(reviveRow(
+            snap.bant,
+            BANT_COLUMNS,
+            BANT_DATES,
+          ) as Prisma.LeadBantUncheckedCreateInput),
+          updatedAt: context.now,
+        },
+      });
+    }
 
     await tx.leadTimeline.create({
       data: {

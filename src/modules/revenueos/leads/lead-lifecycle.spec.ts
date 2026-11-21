@@ -153,6 +153,15 @@ describe('Lead deactivate / reactivate', () => {
       ),
     },
     leadSource: { findUnique: jest.fn(async () => ({ id: 's1' })) },
+    // Every lead here has a complete BANT, so qualifying is about the lead's state only.
+    leadBant: {
+      findUnique: jest.fn(async () => ({
+        budget: 'CONFIRMED',
+        authority: 'DECISION_MAKER',
+        need: 'URGENT',
+        timeline: 'WITHIN_1_MONTH',
+      })),
+    },
     leadTimeline: {
       create: jest.fn(async (args: any) => {
         writes.push('leadTimeline.create');

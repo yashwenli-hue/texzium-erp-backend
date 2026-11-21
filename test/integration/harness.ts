@@ -21,6 +21,7 @@ export interface Ctx {
     get: (url: string) => request.Test;
     post: (url: string, body?: object) => request.Test;
     patch: (url: string, body?: object) => request.Test;
+    put: (url: string, body?: object) => request.Test;
     del: (url: string) => request.Test;
   };
 }
@@ -63,6 +64,11 @@ export async function startApp(): Promise<Ctx> {
     patch: (url: string, body: object = {}) =>
       http()
         .patch(url)
+        .set('Authorization', `Bearer ${token(userId)}`)
+        .send(body),
+    put: (url: string, body: object = {}) =>
+      http()
+        .put(url)
         .set('Authorization', `Bearer ${token(userId)}`)
         .send(body),
     del: (url: string) =>
@@ -294,4 +300,20 @@ export async function chain(
     invoice: inv.id,
     gst: g.id,
   };
+}
+
+// A complete BANT analysis for a lead (Budget, Authority, Need, Timeline answered),
+// which qualifying a lead requires. Written directly, like the other fixtures here.
+export async function completeBant(db: PrismaClient, leadId: string) {
+  const answers = {
+    budget: 'CONFIRMED',
+    authority: 'DECISION_MAKER',
+    need: 'URGENT',
+    timeline: 'WITHIN_1_MONTH',
+  };
+  await db.leadBant.upsert({
+    where: { leadId },
+    create: { leadId, ...answers, score: 100, completedAt: new Date() },
+    update: { ...answers, score: 100, completedAt: new Date() },
+  });
 }

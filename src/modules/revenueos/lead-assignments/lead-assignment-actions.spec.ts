@@ -94,8 +94,22 @@ interface FakeLead {
   isActive: boolean;
 }
 
-function dbDouble(lead: FakeLead | null) {
-  const state = { lead: lead ? { ...lead } : null, calls: [] as string[] };
+// A complete BANT analysis: the default, so every qualify below that is not about
+// BANT gets past the BANT rule.
+const COMPLETE_BANT = {
+  budget: 'CONFIRMED',
+  authority: 'DECISION_MAKER',
+  need: 'URGENT',
+  timeline: 'WITHIN_1_MONTH',
+};
+type FakeBant = Partial<typeof COMPLETE_BANT> | null;
+
+function dbDouble(lead: FakeLead | null, bant: FakeBant = COMPLETE_BANT) {
+  const state = {
+    lead: lead ? { ...lead } : null,
+    bant: bant ? { ...bant } : null,
+    calls: [] as string[],
+  };
   const db: any = {
     state,
     $queryRaw: jest.fn(async () => {
@@ -132,6 +146,12 @@ function dbDouble(lead: FakeLead | null) {
       create: jest.fn(async () => {
         state.calls.push('timeline.create');
         return {};
+      }),
+    },
+    leadBant: {
+      findUnique: jest.fn(async () => {
+        state.calls.push('bant.read');
+        return state.bant;
       }),
     },
   };
@@ -186,11 +206,12 @@ describe('Lead assign / qualify / reject', () => {
   });
 
   // Swaps the double's contents in place (the module holds the same object).
-  const use = (lead: Partial<FakeLead> | null) => {
+  const use = (lead: Partial<FakeLead> | null, bant?: FakeBant) => {
     const fresh = dbDouble(
       lead
         ? { status: 'NEW', assignedToId: null, isActive: true, ...lead }
         : null,
+      bant,
     );
     for (const key of Object.keys(fresh)) db[key] = fresh[key];
   };
@@ -627,6 +648,64 @@ describe('Lead assign / qualify / reject', () => {
         expect(calls.slice(-3, -1)).toEqual(['lead.update', 'timeline.create']);
       },
     );
+  });
+
+  describe('BANT must be complete before a lead goes to Sales', () => {
+    it.each([
+      ['no BANT at all', null, 'Budget, Authority, Need, Timeline'],
+      [
+        'only Budget answered',
+        { budget: 'CONFIRMED' },
+        'Authority, Need, Timeline',
+      ],
+      [
+        'all but Timeline',
+        { budget: 'NONE', authority: 'UNKNOWN', need: 'NONE' },
+        'Timeline',
+      ],
+    ])(
+      '%s: 409 naming what is still to answer, and nothing is written',
+      async (_n, bant, missing) => {
+        use({ status: 'PRE_SALES_ASSIGNED', assignedToId: ASHA }, bant);
+        const res = await qualify();
+        expect(res.status).toBe(409);
+        expect(res.body.message).toContain('Complete the BANT analysis');
+        expect(res.body.message).toContain(`Still to answer: ${missing}.`);
+        nothingWritten();
+        expect(db.state.lead.status).toBe('PRE_SALES_ASSIGNED');
+      },
+    );
+
+    it('a complete BANT qualifies, whatever the score (a low score is shown, not blocked)', async () => {
+      use(
+        { status: 'PRE_SALES_ASSIGNED', assignedToId: ASHA },
+        {
+          budget: 'NONE',
+          authority: 'UNKNOWN',
+          need: 'NONE',
+          timeline: 'LATER',
+        },
+      );
+      expect((await qualify()).status).toBe(200);
+      expect(db.state.lead.status).toBe('SALES_ASSIGNED');
+    });
+
+    it('the BANT is read inside the transaction, after the lead is locked', async () => {
+      use({ status: 'PRE_SALES_ASSIGNED', assignedToId: ASHA });
+      await qualify();
+      const calls: string[] = db.state.calls;
+      expect(calls.indexOf('bant.read')).toBeGreaterThan(calls.indexOf('lock'));
+      expect(calls.indexOf('bant.read')).toBeLessThan(
+        calls.indexOf('lead.update'),
+      );
+    });
+
+    it('assigning and rejecting do not need BANT', async () => {
+      use({ status: 'NEW' }, null);
+      expect((await assign()).status).toBe(201);
+      use({ status: 'PRE_SALES_ASSIGNED', assignedToId: ASHA }, null);
+      expect((await reject()).status).toBe(200);
+    });
   });
 
   describe('duplicates, one after the other (the lock serialises them)', () => {

@@ -20,6 +20,7 @@ import { GSTIN_PATTERN } from '../customer-gst/customer-gst-values';
 import { LeadDuplicateCheckQueryDto } from './dto/lead-duplicate-check.dto';
 import {
   LEAD_ACTOR_SELECT,
+  LEAD_BANT_SUMMARY_SELECT,
   LEAD_HISTORY_INCLUDE,
 } from './lead-history.include';
 import {
@@ -34,32 +35,32 @@ import {
   assertLeadLocation,
   mergeLeadLocation,
 } from './lead-location';
-import { ALL_RECORDS, RecordScope, and, leadWhere } from '../record-scope/record-scope';
+import {
+  ALL_RECORDS,
+  RecordScope,
+  and,
+  leadWhere,
+} from '../record-scope/record-scope';
 
 // Tolerance for client/server clock skew when rejecting future-dated activity.
 const OCCURRED_AT_FUTURE_TOLERANCE_MS = 5 * 60 * 1000;
 
 @Injectable()
 export class LeadsService {
-  constructor(
-    private readonly prisma: PrismaService,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   // The creator is recorded on LEAD_CREATED (it is also how the person who entered the
   // lead keeps sight of it). Leads that arrive from the WhatsApp bot or a webhook are
   // created elsewhere and have no actor.
   async create(data: CreateLeadDto, actorId?: string) {
-    const source =
-      await this.prisma.leadSource.findUnique({
-        where: {
-          id: data.sourceId,
-        },
-      });
+    const source = await this.prisma.leadSource.findUnique({
+      where: {
+        id: data.sourceId,
+      },
+    });
 
     if (!source) {
-      throw new NotFoundException(
-        'Lead source not found.',
-      );
+      throw new NotFoundException('Lead source not found.');
     }
 
     // Nothing is inferred when no location is given: all three stay null.
@@ -117,13 +118,17 @@ export class LeadsService {
 
   async findAll(includeInactive = false, scope: RecordScope = ALL_RECORDS) {
     return this.prisma.lead.findMany({
-      where: and<Prisma.LeadWhereInput>(includeInactive ? undefined : { isActive: true }, leadWhere(scope)),
+      where: and<Prisma.LeadWhereInput>(
+        includeInactive ? undefined : { isActive: true },
+        leadWhere(scope),
+      ),
       include: {
         source: true,
         assignedTo: { select: LEAD_ACTOR_SELECT },
         inventoryItem: { select: LEAD_PRODUCT_SELECT },
         followups: true,
         opportunities: true,
+        bant: { select: LEAD_BANT_SUMMARY_SELECT },
       },
       orderBy: {
         createdAt: 'desc',
@@ -156,37 +161,49 @@ export class LeadsService {
   ) {
     const lead = await this.prisma.lead.findUnique({
       where: { id },
-      select: { phone: true, alternatePhone: true, email: true, customerName: true, companyName: true, city: true, createdAt: true, inventoryItemId: true },
+      select: {
+        phone: true,
+        alternatePhone: true,
+        email: true,
+        customerName: true,
+        companyName: true,
+        city: true,
+        createdAt: true,
+        inventoryItemId: true,
+      },
     });
     if (!lead) throw new NotFoundException('Lead not found.');
-    return findLeadDuplicates(this.prisma, { ...lead, excludeLeadId: id }, scope, options);
+    return findLeadDuplicates(
+      this.prisma,
+      { ...lead, excludeLeadId: id },
+      scope,
+      options,
+    );
   }
 
   async findOne(id: string) {
-    const lead =
-      await this.prisma.lead.findUnique({
-        where: {
-          id,
-        },
-        include: {
-          source: true,
-          assignedTo: { select: LEAD_ACTOR_SELECT },
-          inventoryItem: { select: LEAD_PRODUCT_SELECT },
-          deactivatedBy: { select: LEAD_ACTOR_SELECT },
-          ...LEAD_HISTORY_INCLUDE,
-          followups: {
-            orderBy: {
-              followupDate: 'asc',
-            },
+    const lead = await this.prisma.lead.findUnique({
+      where: {
+        id,
+      },
+      include: {
+        source: true,
+        assignedTo: { select: LEAD_ACTOR_SELECT },
+        inventoryItem: { select: LEAD_PRODUCT_SELECT },
+        deactivatedBy: { select: LEAD_ACTOR_SELECT },
+        ...LEAD_HISTORY_INCLUDE,
+        followups: {
+          orderBy: {
+            followupDate: 'asc',
           },
-          opportunities: true,
         },
-      });
+        opportunities: true,
+        bant: { select: LEAD_BANT_SUMMARY_SELECT },
+      },
+    });
 
     if (!lead) {
-      throw new NotFoundException(
-        'Lead not found.',
-      );
+      throw new NotFoundException('Lead not found.');
     }
 
     return lead;
@@ -280,21 +297,15 @@ export class LeadsService {
     });
   }
 
-  async update(
-    id: string,
-    data: UpdateLeadDto,
-  ) {
-    const existing =
-      await this.prisma.lead.findUnique({
-        where: {
-          id,
-        },
-      });
+  async update(id: string, data: UpdateLeadDto) {
+    const existing = await this.prisma.lead.findUnique({
+      where: {
+        id,
+      },
+    });
 
     if (!existing) {
-      throw new NotFoundException(
-        'Lead not found.',
-      );
+      throw new NotFoundException('Lead not found.');
     }
 
     if (!existing.isActive) {
@@ -302,17 +313,14 @@ export class LeadsService {
     }
 
     if (data.sourceId) {
-      const source =
-        await this.prisma.leadSource.findUnique({
-          where: {
-            id: data.sourceId,
-          },
-        });
+      const source = await this.prisma.leadSource.findUnique({
+        where: {
+          id: data.sourceId,
+        },
+      });
 
       if (!source) {
-        throw new NotFoundException(
-          'Lead source not found.',
-        );
+        throw new NotFoundException('Lead source not found.');
       }
     }
 
@@ -369,11 +377,7 @@ export class LeadsService {
   // update only matches an active lead with no opportunities and no pending
   // follow-ups, so the rules hold even if something is created at the same
   // moment. Follow-ups and opportunities are never touched.
-  async deactivate(
-    id: string,
-    actorId: string | undefined,
-    reason: string,
-  ) {
+  async deactivate(id: string, actorId: string | undefined, reason: string) {
     await this.requireActor(actorId);
 
     return this.prisma.$transaction(async (tx) => {

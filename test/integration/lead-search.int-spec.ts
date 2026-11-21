@@ -1,5 +1,14 @@
 /* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return -- supertest response bodies are loosely typed */
-import { Ctx, lead, reset, role, startApp, stopApp, user } from './harness';
+import {
+  Ctx,
+  completeBant,
+  lead,
+  reset,
+  role,
+  startApp,
+  stopApp,
+  user,
+} from './harness';
 
 // GET /leads/search on a real database: phone search however the number is written,
 // pre-sales involvement from history, the other filters, paging, facets that agree with
@@ -142,6 +151,7 @@ describe('pre-sales involvement', () => {
         })
       ).status,
     ).toBe(201);
+    await completeBant(ctx.db, a);
     expect(
       (
         await ctx
