@@ -31,6 +31,7 @@ import { WebhooksModule } from './modules/adminos/webhooks/webhooks.module';
 import { LeadAssignmentsModule } from './modules/revenueos/lead-assignments/lead-assignments.module';
 import { LeadFollowupsModule } from './modules/revenueos/lead-followups/lead-followups.module';
 import { LeadBantModule } from './modules/revenueos/lead-bant/lead-bant.module';
+import { LeadQuotationsModule } from './modules/revenueos/lead-quotations/lead-quotations.module';
 import { LeadStatusModule } from './modules/revenueos/lead-status/lead-status.module';
 import { OpportunitiesModule } from './modules/revenueos/opportunities/opportunities.module';
 import { QuotationsModule } from './modules/revenueos/quotations/quotations.module';
@@ -161,6 +162,7 @@ import { ContentLibraryModule } from './modules/revenueos/content-library/conten
     LeadAssignmentsModule,
     LeadFollowupsModule,
     LeadBantModule,
+    LeadQuotationsModule,
     LeadStatusModule,
     OpportunitiesModule,
     QuotationsModule,
