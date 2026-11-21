@@ -10,7 +10,8 @@ import {
   lockActiveLeadForWrite,
   lockLeadForWrite,
 } from '../leads/lead-lifecycle';
-import { ALL_RECORDS, RecordScope, followupWhere } from '../record-scope/record-scope';
+import { ALL_RECORDS, RecordScope, and, followupWhere } from '../record-scope/record-scope';
+import { FOLLOWUP_CALENDAR_SELECT, parseFollowupRange } from './followup-range';
 
 @Injectable()
 export class LeadFollowupsService {
@@ -62,6 +63,45 @@ export class LeadFollowupsService {
       orderBy: {
         followupDate: 'asc',
       },
+    });
+  }
+
+  /**
+   * The reminder list: PENDING follow-ups of active leads the user currently owns
+   * (lead.assignedToId), due between `from` and `to`. Overdue ones are included when
+   * `from` reaches back far enough; the caller picks the window.
+   */
+  async mine(userId: string, from: unknown, to: unknown) {
+    const range = parseFollowupRange(from, to);
+    return this.prisma.leadFollowup.findMany({
+      where: {
+        status: 'PENDING',
+        followupDate: { gte: range.from, lt: range.to },
+        lead: { assignedToId: userId, isActive: true },
+      },
+      select: FOLLOWUP_CALENDAR_SELECT,
+      orderBy: { followupDate: 'asc' },
+    });
+  }
+
+  /**
+   * The follow-up calendar: every follow-up (any status) dated between `from` and
+   * `to`, within the caller's record scope (everyone's for revenue.view.all), and
+   * optionally only those of leads owned by `ownerId`.
+   */
+  async calendar(scope: RecordScope, from: unknown, to: unknown, ownerId?: unknown) {
+    const range = parseFollowupRange(from, to);
+    const owner = typeof ownerId === 'string' && ownerId.trim() !== '' ? ownerId.trim() : undefined;
+    return this.prisma.leadFollowup.findMany({
+      where: and(
+        {
+          followupDate: { gte: range.from, lt: range.to },
+          ...(owner ? { lead: { assignedToId: owner } } : {}),
+        },
+        followupWhere(scope),
+      ),
+      select: FOLLOWUP_CALENDAR_SELECT,
+      orderBy: { followupDate: 'asc' },
     });
   }
 

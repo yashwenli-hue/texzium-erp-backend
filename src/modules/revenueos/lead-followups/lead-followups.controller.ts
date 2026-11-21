@@ -5,7 +5,9 @@ import {
   Patch,
   Post,
   Param,
+  Query,
   Req,
+  UnauthorizedException,
   UseGuards,
 } from '@nestjs/common';
 
@@ -36,6 +38,29 @@ export class LeadFollowupsController {
   @Permissions('leads.followups.view')
   findAll(@Req() req: { user?: { id?: string; permissions?: unknown } }) {
     return this.leadFollowupsService.findAll(scopeOf(req.user));
+  }
+
+  // Declared before ':leadId' so "mine" and "calendar" are not read as a lead id.
+  @Get('mine')
+  @Permissions('leads.followups.view')
+  mine(
+    @Req() req: { user?: { id?: string } },
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    if (!req.user?.id) throw new UnauthorizedException('Authenticated user required.');
+    return this.leadFollowupsService.mine(req.user.id, from, to);
+  }
+
+  @Get('calendar')
+  @Permissions('leads.followups.view')
+  calendar(
+    @Req() req: { user?: { id?: string; permissions?: unknown } },
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('ownerId') ownerId?: string,
+  ) {
+    return this.leadFollowupsService.calendar(scopeOf(req.user), from, to, ownerId);
   }
 
   @Get(':leadId')
