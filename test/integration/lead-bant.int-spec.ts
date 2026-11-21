@@ -179,7 +179,7 @@ it('a lead is handed to Sales only once its BANT is complete', async () => {
   expect(ok.body.status).toBe('SALES_ASSIGNED');
 });
 
-it("the lead list carries each lead's BANT score", async () => {
+it("the lead list, the lead and the Leads search carry each lead's BANT score", async () => {
   const l = await mine();
   await ctx
     .as(priya)
@@ -189,6 +189,11 @@ it("the lead list carries each lead's BANT score", async () => {
   expect(row.bant).toEqual({ score: 40, completedAt: null });
   const detail = await ctx.as(priya).get(`/leads/${l.id}`);
   expect(detail.body.bant).toEqual({ score: 40, completedAt: null });
+  const search = await ctx.as(priya).get('/leads/search');
+  expect(search.body.items.find((x: any) => x.id === l.id).bant).toEqual({
+    score: 40,
+    completedAt: null,
+  });
 });
 
 it("someone else's lead: not found, to read or to write", async () => {

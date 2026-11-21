@@ -3,7 +3,10 @@ import { LeadStatus, Prisma, PrismaClient } from '@prisma/client';
 import { RecordScope, leadVisibleSql } from '../record-scope/record-scope';
 import { LEAD_BEFORE_QUALIFICATION } from '../lead-assignments/lead-transitions';
 import { NOT_SET, SearchLeadsQueryDto } from './dto/search-leads-query.dto';
-import { LEAD_ACTOR_SELECT } from './lead-history.include';
+import {
+  LEAD_ACTOR_SELECT,
+  LEAD_BANT_SUMMARY_SELECT,
+} from './lead-history.include';
 import { LEAD_PRODUCT_SELECT } from './lead-lifecycle';
 import {
   LEAD_STAGE_KEYS,
@@ -285,6 +288,7 @@ export async function searchLeads(
         inventoryItem: { select: LEAD_PRODUCT_SELECT },
         followups: true,
         opportunities: true,
+        bant: { select: LEAD_BANT_SUMMARY_SELECT },
       },
     }),
     pageIds.length
