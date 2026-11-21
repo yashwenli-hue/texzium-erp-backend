@@ -9,8 +9,8 @@
 //
 // The story (companies, people and GSTINs are fictional):
 //   Patil Agro, Joshi Textiles  new enquiries, not yet assigned  (Sales Manager assigns)
-//   Deshmukh Foods              with Pre-Sales, call booked for tomorrow
-//   Kulkarni Chemicals          with Pre-Sales, call done, ready to qualify
+//   Deshmukh Foods              with Pre-Sales, call booked for tomorrow, BANT half done
+//   Kulkarni Chemicals          with Pre-Sales, call done, BANT complete (Hot), ready to qualify
 //   Rao Engineering             rejected by Pre-Sales (no budget)
 //   Shah Pharma                 with Sales: deal at Proposal, quotation in DRAFT
 //   Nair Steel Works            order placed, advance paid, waiting for Finance to verify
@@ -132,6 +132,17 @@ async function main() {
       leadId,
       assignedToId: to.id,
     });
+  const bant = (leadId, answers) =>
+    call(pre.token, 'PUT', `/leads/${leadId}/bant`, answers);
+  const HOT_BANT = {
+    budget: 'CONFIRMED',
+    budgetNote: 'Capex approved for this quarter',
+    authority: 'DECISION_MAKER',
+    authorityNote: 'Plant head signs off',
+    need: 'URGENT',
+    needNote: 'Old pumps failing, downtime every week',
+    timeline: 'WITHIN_1_MONTH',
+  };
   const qualify = (leadId) =>
     call(pre.token, 'PATCH', `/lead-assignments/${leadId}/qualify`, {
       salesUserId: sales.id,
@@ -150,7 +161,12 @@ async function main() {
     followupDate: `${day(1)}T11:00:00.000Z`,
     remarks: 'Discuss pump capacity for the new cold-storage unit',
   });
-  step('Deshmukh Foods: with Pre-Sales, call tomorrow');
+  await bant(l3.id, {
+    budget: 'INDICATIVE',
+    budgetNote: 'Around 5 lakh, not approved yet',
+    need: 'DEFINED',
+  });
+  step('Deshmukh Foods: with Pre-Sales, call tomorrow, BANT half done');
 
   // 4. With Pre-Sales, call done, ready to qualify.
   const l4 = await lead(pre, 'Anita Kulkarni', 'Kulkarni Chemicals', 'Thane');
@@ -161,7 +177,12 @@ async function main() {
     remarks: 'Intro call: needs 6 dosing pumps by March',
   });
   await call(pre.token, 'PATCH', `/lead-followups/${f4.id}/complete`, {});
-  step('Kulkarni Chemicals: call done, ready to qualify');
+  await bant(l4.id, {
+    ...HOT_BANT,
+    budgetAmount: 540000,
+    timeline: 'WITHIN_3_MONTHS',
+  });
+  step('Kulkarni Chemicals: call done, BANT complete (Hot), ready to qualify');
 
   // 5. Rejected.
   const l5 = await lead(pre, 'Suresh Rao', 'Rao Engineering', 'Kolhapur');
@@ -183,6 +204,7 @@ async function main() {
   ) => {
     const l = await lead(pre, customerName, companyName, city);
     await assign(l.id, pre);
+    await bant(l.id, { ...HOT_BANT, budgetAmount: qty * price });
     await qualify(l.id);
     const customer = await call(sales.token, 'POST', '/customers', {
       customerName: companyName,
